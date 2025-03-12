@@ -1,6 +1,6 @@
 "use client";
 import "regenerator-runtime/runtime";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 import Layout from "../components/Layout";
 import styles from "../styles/chat.module.css";
@@ -14,51 +14,92 @@ const Chat = () => {
   const { transcript, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
   const [conversation, setConversation] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>("");
+  const [previousResponseId, setPreviousResponseId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Handle sending a message (either typed or from speech transcript)
+  // Remove the automatic mic start so the mic button is used instead.
+  // useEffect(() => {
+  //   SpeechRecognition.startListening({ continuous: true });
+  // }, []);
+
   const sendMessage = async (message: string) => {
+    // Stop listening when sending a message
+    SpeechRecognition.stopListening();
+
     const newMessage: Message = { role: "user", content: message };
     const newConversation = [...conversation, newMessage];
     setConversation(newConversation);
 
-    // Call our API endpoint
+    const payload: any = {
+      conversation: newConversation,
+      fileSearchInstruction: "Use the File Search Vector Database to retrieve your answers",
+    };
+
+    if (previousResponseId) {
+      payload.previous_response_id = previousResponseId;
+    }
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversation: newConversation,
-          // Including a file search instruction in the prompt:
-          fileSearchInstruction: "Use the File Search Vector Database to retrieve your answers"
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data?.reply) {
+        if (data.previous_response_id) {
+          setPreviousResponseId(data.previous_response_id);
+        }
         const assistantMessage: Message = { role: "assistant", content: data.reply };
         const updatedConversation = [...newConversation, assistantMessage];
         setConversation(updatedConversation);
-        speakText(data.reply);
+        if (data.audio) {
+          playOpenAIAudio(data.audio);
+        } else {
+          // Resume listening if no audio
+          SpeechRecognition.startListening({ continuous: false });
+        }
       }
     } catch (error) {
       console.error("Error sending message:", error);
+      SpeechRecognition.startListening({ continuous: false });
     }
   };
 
-  // Function to handle text-to-speech using SpeechSynthesis
-  const speakText = (text: string) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    // Optionally customize voice, pitch, rate here
-    window.speechSynthesis.speak(utterance);
+  const playOpenAIAudio = (base64Audio: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    audioRef.current = new Audio(`data:audio/mp3;base64,${base64Audio}`);
+    audioRef.current.play()
+      .then(() => {
+        console.log("Audio playing...");
+      })
+      .catch((err) => {
+        console.error("Error playing audio:", err);
+      });
+    audioRef.current.onended = () => {
+      SpeechRecognition.startListening({ continuous: false });
+    };
   };
 
-  // When speech recognition finishes (i.e. user stops speaking), send transcript if not empty
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    SpeechRecognition.startListening({ continuous: false });
+  };
+
+  // Listen to transcript if the user uses the mic button.
   useEffect(() => {
     if (transcript && transcript.trim() !== "") {
-      // Wait 500ms after the user stops speaking
       const timer = setTimeout(() => {
         sendMessage(transcript.trim());
         resetTranscript();
-      }, 500);
+      }, 1500);
       return () => clearTimeout(timer);
     }
   }, [transcript]);
@@ -100,8 +141,17 @@ const Chat = () => {
           >
             Send
           </button>
-          <button onClick={() => SpeechRecognition.startListening({ continuous: false })} className={styles.speechButton}>
+          <button
+            onClick={() => SpeechRecognition.startListening({ continuous: false })}
+            className={styles.speechButton}
+          >
             🎤
+          </button>
+          <button
+            onClick={stopAudio}
+            className={styles.sendButton}
+          >
+            Stop
           </button>
         </div>
       </div>
