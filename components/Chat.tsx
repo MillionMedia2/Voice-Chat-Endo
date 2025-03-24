@@ -243,8 +243,16 @@ const Chat = () => {
   // Handle transcript changes
   useEffect(() => {
     if (transcript && !isLoading) {
-      sendMessage(transcript);
-      resetTranscript();
+      // Add a delay before sending the message to ensure we have a complete thought
+      const timeoutId = setTimeout(() => {
+        // Only send if we have more than one word and the transcript hasn't changed
+        if (transcript.split(' ').length > 1) {
+          sendMessage(transcript);
+          resetTranscript();
+        }
+      }, 1500);
+
+      return () => clearTimeout(timeoutId);
     }
   }, [transcript, isLoading, resetTranscript, sendMessage]);
 
