@@ -34,31 +34,26 @@
 
 .headerButtons {
   display: flex;
-  gap: 12px;
+  gap: 5px;
   align-items: center;
 }
 
 .headerButton {
-  background-color: transparent;
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
   color: #fff;
-  border: 1px solid #fff;
   border-radius: 4px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.875rem;
-  font-weight: 400;
-  cursor: pointer;
   transition: all 0.2s ease;
-  position: relative;
 }
 
 .headerButton:hover {
-  background-color: #fff;
-  color: #000;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
 .headerButton:hover::after {
@@ -74,6 +69,18 @@
   font-size: 12px;
   white-space: nowrap;
   z-index: 1000;
+}
+
+.headerButtonActive {
+  background-color: #000;
+  border-color: #000;
+  color: white;
+}
+
+.headerButtonActive:hover {
+  background-color: #333;
+  border-color: #333;
+  color: white;
 }
 
 .chatHistory {
@@ -127,7 +134,7 @@
 
 .inputWrapper {
   position: relative;
-  width: calc(100% - 150px); /* Back to previous width */
+  width: calc(100% - 160px);
   margin-right: 8px;
 }
 
@@ -179,6 +186,37 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.speechButton:hover {
+  background-color: #333;
+}
+
+.speechButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.speechButton.active {
+  background-color: #000;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.4);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 10px rgba(0, 0, 0, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
 }
 
 .sendButton {
@@ -239,7 +277,7 @@
 }
 
 .chatInput {
-  width: 98%;
+  width: 95%;
   padding: 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -308,4 +346,48 @@
 .speedSelect option {
   background-color: #000;
   color: #fff;
+}
+
+.micButton {
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s ease;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.micButton:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #000;
+}
+
+.micButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.micButtonActive {
+  background-color: #ff4b4b;
+  color: white;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 75, 75, 0.4);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 10px rgba(255, 75, 75, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 75, 75, 0);
+  }
 }

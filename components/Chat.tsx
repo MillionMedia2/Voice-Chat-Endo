@@ -49,6 +49,7 @@ const Chat = () => {
   const [isListening, setIsListening] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Load conversation from localStorage on mount
   useEffect(() => {
@@ -260,15 +261,14 @@ const Chat = () => {
   }, []);
 
   const exportConversation = useCallback(() => {
-    const exportData = {
-      conversation,
-      timestamp: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const text = conversation
+      .map((msg) => `${msg.role}: ${msg.content}`)
+      .join("\n\n");
+    const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `chat-export-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = "conversation.txt";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -291,6 +291,25 @@ const Chat = () => {
     }
   };
 
+  const toggleListening = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  }, [isListening, startListening, stopListening]);
+
+  const endSession = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    }
+    if (isAgentSpeaking) {
+      stopAudio();
+    }
+    setIsListening(false);
+    setIsAgentSpeaking(false);
+  }, [isListening, isAgentSpeaking, stopListening, stopAudio]);
+
   if (!mounted) {
     return null; // or a loading spinner
   }
@@ -305,32 +324,13 @@ const Chat = () => {
         <div className={styles.chatHeader}>
           <span>Chat with Plantz</span>
           <div className={styles.headerButtons}>
-            <div className={styles.speedControl}>
-              <select 
-                value={playbackRate} 
-                onChange={(e) => {
-                  const newRate = parseFloat(e.target.value);
-                  setPlaybackRate(newRate);
-                  if (audioRef.current) {
-                    audioRef.current.playbackRate = newRate;
-                  }
-                }}
-                className={styles.speedSelect}
-              >
-                <option value={0.8}>0.8x</option>
-                <option value={1.0}>1.0x</option>
-                <option value={1.2}>1.2x</option>
-                <option value={1.5}>1.5x</option>
-                <option value={2.0}>2.0x</option>
-              </select>
-            </div>
             <button 
               onClick={clearConversation} 
               className={styles.headerButton} 
               aria-label="Clear conversation"
               data-tooltip="Clear"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
               </svg>
             </button>
@@ -340,7 +340,7 @@ const Chat = () => {
               aria-label="Export conversation"
               data-tooltip="Download"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
@@ -421,15 +421,15 @@ const Chat = () => {
             Send
           </button>
           <button
-            onClick={() => isAgentSpeaking ? stopAudio() : startListening()}
-            className={`${styles.speechButton} ${isAgentSpeaking ? styles.active : ''} ${isListening ? styles.listening : ''}`}
+            onClick={isAgentSpeaking ? stopAudio : toggleListening}
+            className={`${styles.speechButton} ${(isListening || isAgentSpeaking) ? styles.active : ''}`}
             disabled={isLoading}
-            aria-label={isAgentSpeaking ? "Stop speaking" : "Start speaking"}
+            aria-label={isAgentSpeaking ? "Stop audio" : "Start listening"}
           >
             {isAgentSpeaking ? (
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <rect x="9" y="9" width="6" height="6" />
+                <rect x="6" y="4" width="4" height="16" />
+                <rect x="14" y="4" width="4" height="16" />
               </svg>
             ) : (
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
