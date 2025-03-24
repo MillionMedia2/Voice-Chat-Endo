@@ -1,6 +1,6 @@
 "use client";
 import "regenerator-runtime/runtime";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 import Layout from "../components/Layout";
 import styles from "../styles/chat.module.css";
@@ -84,7 +84,21 @@ const Chat = () => {
     }
   }, []);
 
-  const sendMessage = async (message: string) => {
+  const startListening = useCallback(() => {
+    if (browserSupportsSpeechRecognition) {
+      setIsListening(true);
+      SpeechRecognition.startListening({ continuous: true });
+    }
+  }, [browserSupportsSpeechRecognition]);
+
+  const stopListening = useCallback(() => {
+    if (browserSupportsSpeechRecognition) {
+      setIsListening(false);
+      SpeechRecognition.stopListening();
+    }
+  }, [browserSupportsSpeechRecognition]);
+
+  const sendMessage = useCallback(async (message: string) => {
     if (isLoading) return;
     setIsLoading(true);
     setError(null);
@@ -163,7 +177,7 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [conversation, isLoading, previousResponseId, startListening, stopListening]);
 
   // Handle transcript changes
   useEffect(() => {
@@ -173,28 +187,14 @@ const Chat = () => {
     }
   }, [transcript, isLoading, resetTranscript, sendMessage]);
 
-  const startListening = () => {
-    if (browserSupportsSpeechRecognition) {
-      setIsListening(true);
-      SpeechRecognition.startListening({ continuous: true });
-    }
-  };
-
-  const stopListening = () => {
-    if (browserSupportsSpeechRecognition) {
-      setIsListening(false);
-      SpeechRecognition.stopListening();
-    }
-  };
-
-  const clearConversation = () => {
+  const clearConversation = useCallback(() => {
     if (window.confirm('Are you sure you want to clear the conversation?')) {
       setConversation([]);
       localStorage.removeItem(STORAGE_KEY);
     }
-  };
+  }, []);
 
-  const exportConversation = () => {
+  const exportConversation = useCallback(() => {
     const exportData = {
       conversation,
       timestamp: new Date().toISOString(),
@@ -208,9 +208,9 @@ const Chat = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
+  }, [conversation]);
 
-  const importConversation = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const importConversation = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -226,9 +226,9 @@ const Chat = () => {
       };
       reader.readAsText(file);
     }
-  };
+  }, []);
 
-  const playOpenAIAudio = (base64Audio: string) => {
+  const playOpenAIAudio = useCallback((base64Audio: string) => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -261,7 +261,7 @@ const Chat = () => {
 
     // Start playing as soon as possible
     playAudio();
-  };
+  }, [playbackRate]);
 
   const stopAudio = () => {
     if (audioRef.current) {
