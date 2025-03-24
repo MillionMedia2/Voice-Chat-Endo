@@ -24,6 +24,11 @@ interface AudioContextType extends AudioContext {
   webkitAudioContext?: AudioContext;
 }
 
+interface WindowWithAudioContext extends Window {
+  webkitAudioContext?: typeof AudioContext;
+  AudioContext: typeof AudioContext;
+}
+
 const STORAGE_KEY = 'chat_conversation';
 const MAX_MESSAGE_LENGTH = 500;
 
@@ -35,7 +40,7 @@ const Chat = () => {
   const [previousResponseId, setPreviousResponseId] = useState<string | null>(null);
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
@@ -98,10 +103,50 @@ const Chat = () => {
     }
   }, [browserSupportsSpeechRecognition]);
 
+  const playOpenAIAudio = useCallback((base64Audio: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
+    // Create and configure audio element
+    const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
+    audio.playbackRate = playbackRate;
+    audio.preload = 'auto';
+
+    // Set up audio context for better performance
+    const windowWithAudio = window as WindowWithAudioContext;
+    const AudioContextClass = windowWithAudio.AudioContext || windowWithAudio.webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error('AudioContext not supported in this browser');
+    }
+    const audioContext = new AudioContextClass() as AudioContextType;
+    const source = audioContext.createMediaElementSource(audio);
+    source.connect(audioContext.destination);
+
+    // Update state and handle playback
+    setIsAgentSpeaking(true);
+    audioRef.current = audio;
+
+    const playAudio = async () => {
+      try {
+        await audioContext.resume();
+        await audio.play();
+        console.log("Audio playing...");
+      } catch (err) {
+        console.error("Error playing audio:", err);
+        setIsAgentSpeaking(false);
+      }
+    };
+
+    // Start playing as soon as possible
+    playAudio();
+  }, [playbackRate]);
+
   const sendMessage = useCallback(async (message: string) => {
     if (isLoading) return;
     setIsLoading(true);
-    setError(null);
+    setErrorMessage(null);
     stopListening();
 
     const userMessage: Message = { 
@@ -138,7 +183,7 @@ const Chat = () => {
         // Handle rate limit with retry
         if (res.status === 429 && data.shouldRetry && typeof data.retryAfter === 'number' && data.retryAfter > 0) {
           const retryAfter = data.retryAfter;  // TypeScript now knows this is a number
-          setError(`Rate limit reached. Retrying in ${retryAfter} seconds...`);
+          setErrorMessage(`Rate limit reached. Retrying in ${retryAfter} seconds...`);
           await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
           return makeRequest(retryCount + 1);
         }
@@ -167,7 +212,7 @@ const Chat = () => {
         }
       } catch (error) {
         console.error("Error sending message:", error);
-        setError(error instanceof Error ? error.message : "An error occurred while sending your message");
+        setErrorMessage(error instanceof Error ? error.message : "An error occurred while sending your message");
         startListening();
       }
     };
@@ -177,7 +222,7 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [conversation, isLoading, previousResponseId, startListening, stopListening]);
+  }, [conversation, isLoading, previousResponseId, startListening, stopListening, playOpenAIAudio]);
 
   // Handle transcript changes
   useEffect(() => {
@@ -220,48 +265,13 @@ const Chat = () => {
           if (data.conversation && Array.isArray(data.conversation)) {
             setConversation(data.conversation);
           }
-        } catch (error) {
-          setError('Error importing conversation file');
+        } catch {
+          setErrorMessage('Error importing conversation file');
         }
       };
       reader.readAsText(file);
     }
   }, []);
-
-  const playOpenAIAudio = useCallback((base64Audio: string) => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    // Create and configure audio element
-    const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
-    audio.playbackRate = playbackRate;
-    audio.preload = 'auto';
-
-    // Set up audio context for better performance
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)() as AudioContextType;
-    const source = audioContext.createMediaElementSource(audio);
-    source.connect(audioContext.destination);
-
-    // Update state and handle playback
-    setIsAgentSpeaking(true);
-    audioRef.current = audio;
-
-    const playAudio = async () => {
-      try {
-        await audioContext.resume();
-        await audio.play();
-        console.log("Audio playing...");
-      } catch (err) {
-        console.error("Error playing audio:", err);
-        setIsAgentSpeaking(false);
-      }
-    };
-
-    // Start playing as soon as possible
-    playAudio();
-  }, [playbackRate]);
 
   const stopAudio = () => {
     if (audioRef.current) {
@@ -289,38 +299,18 @@ const Chat = () => {
 
   return (
     <Layout>
-      <div className={styles.chatContainer}>
-        <div className={styles.chatHeader}>
-          <span>Chat with Plantz</span>
-          <div className={styles.headerButtons}>
-            <div className={styles.speedControl}>
-              <label>Speed:</label>
-              <select 
-                value={playbackRate} 
-                onChange={(e) => {
-                  const newRate = parseFloat(e.target.value);
-                  setPlaybackRate(newRate);
-                  if (audioRef.current) {
-                    audioRef.current.playbackRate = newRate;
-                  }
-                }}
-                className={styles.speedSelect}
-              >
-                <option value={0.8}>0.8x</option>
-                <option value={1.0}>1.0x</option>
-                <option value={1.2}>1.2x</option>
-                <option value={1.5}>1.5x</option>
-                <option value={2.0}>2.0x</option>
-              </select>
-            </div>
-            <button onClick={clearConversation} className={styles.headerButton}>
-              Clear
+      <div className={styles.container}>
+        <div className={styles.header}>
+          <h1>Endometriosis Assistant</h1>
+          <div className={styles.controls}>
+            <button onClick={clearConversation} className={styles.button}>
+              Clear Conversation
             </button>
-            <button onClick={exportConversation} className={styles.headerButton}>
-              Export
+            <button onClick={exportConversation} className={styles.button}>
+              Export Chat
             </button>
-            <label className={styles.headerButton}>
-              Import
+            <label className={styles.importButton}>
+              Import Chat
               <input
                 type="file"
                 accept=".json"
@@ -330,86 +320,55 @@ const Chat = () => {
             </label>
           </div>
         </div>
-        {error && (
-          <div className={styles.errorMessage}>
-            {error}
-          </div>
-        )}
-        <div className={styles.chatHistory} ref={chatHistoryRef}>
-          {conversation.map((msg, index) => (
-            <div
-              key={index}
-              className={`${styles.message} ${msg.role === "assistant" ? styles.assistant : styles.user}`}
-            >
-              <div className={styles.messageContent}>{msg.content}</div>
-              <div className={styles.messageTimestamp}>
-                {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}
+
+        <div className={styles.chatContainer}>
+          <div ref={chatHistoryRef} className={styles.chatHistory}>
+            {conversation.map((message, index) => (
+              <div
+                key={index}
+                className={`${styles.message} ${
+                  message.role === "user" ? styles.userMessage : styles.assistantMessage
+                }`}
+              >
+                <div className={styles.messageContent}>{message.content}</div>
               </div>
-            </div>
-          ))}
-          {isLoading && (
-            <div className={styles.loadingMessage}>
-              <div className={styles.loadingSpinner}></div>
-              Thinking...
-            </div>
-          )}
-          {showScrollButton && (
-            <button 
-              onClick={scrollToBottom}
-              className={styles.scrollButton}
-              aria-label="Scroll to bottom"
-            >
-              ⬇️
-            </button>
-          )}
-        </div>
-        <div className={styles.chatInputContainer}>
-          <div className={styles.inputWrapper}>
-            <input
-              type="text"
-              placeholder="Type your message here..."
-              value={inputText}
-              onChange={(e) => {
-                if (e.target.value.length <= MAX_MESSAGE_LENGTH) {
-                  setInputText(e.target.value);
-                }
-              }}
-              className={styles.chatInput}
-              disabled={isLoading}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (inputText.trim() !== "") {
-                    sendMessage(inputText.trim());
-                    setInputText("");
-                  }
-                }
-              }}
-            />
-            <div className={styles.charCount}>
-              {inputText.length}/{MAX_MESSAGE_LENGTH}
-            </div>
+            ))}
+            {errorMessage && (
+              <div className={styles.errorMessage}>
+                {errorMessage}
+              </div>
+            )}
           </div>
-          <button
-            onClick={() => {
-              if (inputText.trim() !== "") {
-                sendMessage(inputText.trim());
-                setInputText("");
-              }
-            }}
-            className={styles.sendButton}
-            disabled={isLoading || inputText.length === 0}
-          >
-            Send
-          </button>
-          <button
-            onClick={() => isAgentSpeaking ? stopAudio() : startListening()}
-            className={`${styles.speechButton} ${isAgentSpeaking ? styles.active : ''} ${isListening ? styles.listening : ''}`}
-            disabled={isLoading}
-            aria-label={isAgentSpeaking ? "Stop speaking" : "Start speaking"}
-          >
-            {isAgentSpeaking ? '⏹️' : isListening ? '🎤' : '🎤'}
-          </button>
+        </div>
+
+        <div className={styles.inputContainer}>
+          <div className={styles.controls}>
+            <button
+              onClick={isListening ? stopListening : startListening}
+              className={`${styles.button} ${isListening ? styles.active : ''}`}
+            >
+              {isListening ? "Stop Recording" : "Start Recording"}
+            </button>
+            <button
+              onClick={isAgentSpeaking ? stopAudio : undefined}
+              className={`${styles.button} ${isAgentSpeaking ? styles.active : ''}`}
+              disabled={!isAgentSpeaking}
+            >
+              Stop Speaking
+            </button>
+            <select
+              value={playbackRate}
+              onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+              className={styles.select}
+            >
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1.0">1.0x</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2.0">2.0x</option>
+            </select>
+          </div>
         </div>
       </div>
     </Layout>
