@@ -288,24 +288,6 @@ const Chat = () => {
     URL.revokeObjectURL(url);
   }, [conversation]);
 
-  const importConversation = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target?.result as string);
-          if (data.conversation && Array.isArray(data.conversation)) {
-            setConversation(data.conversation);
-          }
-        } catch {
-          setErrorMessage('Error importing conversation file');
-        }
-      };
-      reader.readAsText(file);
-    }
-  }, []);
-
   const stopAudio = () => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -316,7 +298,6 @@ const Chat = () => {
     startListening();
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const scrollToBottom = () => {
     if (chatHistoryRef.current) {
       chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
