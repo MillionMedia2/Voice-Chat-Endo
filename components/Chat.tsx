@@ -136,15 +136,28 @@ const Chat = () => {
         await audioContext.resume();
         await audio.play();
         console.log("Audio playing...");
+        
+        // Add event listener for when audio finishes playing
+        audio.addEventListener('ended', () => {
+          setIsAgentSpeaking(false);
+          // Add a 1.5-second delay before starting to listen again
+          setTimeout(() => {
+            startListening();
+          }, 1500);
+        });
       } catch (err) {
         console.error("Error playing audio:", err);
         setIsAgentSpeaking(false);
+        // Add a 1.5-second delay before starting to listen again even if there's an error
+        setTimeout(() => {
+          startListening();
+        }, 1500);
       }
     };
 
     // Start playing as soon as possible
     playAudio();
-  }, [playbackRate]);
+  }, [playbackRate, startListening]);
 
   const sendMessage = useCallback(async (message: string) => {
     if (isLoading) return;
