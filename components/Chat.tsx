@@ -194,24 +194,39 @@ const Chat = () => {
           body: JSON.stringify(payload),
         });
         
+        // First check if the response is ok before trying to parse JSON
+        if (!res.ok) {
+          // Try to get the error message from the response
+          let errorMessage: string;
+          try {
+            const errorData = await res.json();
+            errorMessage = errorData.error || `HTTP error! status: ${res.status}`;
+          } catch {
+            // If we can't parse JSON, try to get the text
+            try {
+              errorMessage = await res.text();
+            } catch {
+              errorMessage = `HTTP error! status: ${res.status}`;
+            }
+          }
+          throw new Error(errorMessage);
+        }
+
+        // Now try to parse the successful response
         let data: ChatResponse;
         try {
           data = await res.json() as ChatResponse;
         } catch (parseError) {
           console.error("Error parsing response:", parseError);
-          throw new Error("Invalid response from server");
+          throw new Error("Server returned invalid JSON response");
         }
 
         // Handle rate limit with retry
-        if (res.status === 429 && data.shouldRetry && typeof data.retryAfter === 'number' && data.retryAfter > 0) {
-          const retryAfter = data.retryAfter;  // TypeScript now knows this is a number
+        if (data.shouldRetry && typeof data.retryAfter === 'number' && data.retryAfter > 0) {
+          const retryAfter = data.retryAfter;
           setErrorMessage(`Rate limit reached. Retrying in ${retryAfter} seconds...`);
           await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
           return makeRequest(retryCount + 1);
-        }
-        
-        if (!res.ok) {
-          throw new Error(data.error || `HTTP error! status: ${res.status}`);
         }
         
         const reply = data?.reply;
@@ -231,6 +246,8 @@ const Chat = () => {
           } else {
             startListening();
           }
+        } else {
+          throw new Error("No reply received from server");
         }
       } catch (error) {
         console.error("Error sending message:", error);
