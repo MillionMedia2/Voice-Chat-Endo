@@ -13,6 +13,35 @@ type Data = {
   shouldRetry?: boolean;
 };
 
+interface ResponsesPayload {
+  model: string;
+  instructions: string;
+  input: string;
+  temperature: number;
+  tools: Array<{
+    type: string;
+    vector_store_ids: string[];
+  }>;
+  previous_response_id?: string;
+}
+
+interface MessageContent {
+  type: string;
+  content: string | Array<{
+    text?: string;
+    [key: string]: unknown;
+  }>;
+}
+
+interface ResponsesData {
+  id?: string;
+  output?: MessageContent[];
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Data>) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -44,7 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       : DEFAULT_INSTRUCTION;
 
     // Build the payload for the Responses API.
-    const responsesPayload: any = {
+    const responsesPayload: ResponsesPayload = {
       model: "gpt-4o-mini",
       instructions: instructionText,
       input: inputStr,
@@ -52,7 +81,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       tools: [
         {
           type: "file_search",
-          vector_store_ids: [process.env.VECTOR_STORE_ID]
+          vector_store_ids: [process.env.VECTOR_STORE_ID || '']
         }
       ]
     };
@@ -65,13 +94,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     console.log("Responses Payload:", responsesPayload);
 
     // Function to extract retry time from error message
-    const getRetryAfterSeconds = (message: string) => {
+    const getRetryAfterSeconds = (message: string): number => {
       const match = message.match(/try again in (\d+\.?\d*)s/);
       return match ? parseFloat(match[1]) : 5; // default to 5 seconds if no time found
     };
 
     // Function to make the API call with retry logic
-    const callResponsesAPI = async (retryCount = 0): Promise<any> => {
+    const callResponsesAPI = async (): Promise<ResponsesData> => {
       const responsesRes = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -81,7 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         body: JSON.stringify(responsesPayload)
       });
 
-      const responsesData = await responsesRes.json();
+      const responsesData = await responsesRes.json() as ResponsesData;
       console.log("Responses API Status:", responsesRes.status);
       console.log("Responses Data:", JSON.stringify(responsesData, null, 2));
 
@@ -91,11 +120,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         console.log(`Rate limit hit. Retrying in ${retryAfter} seconds...`);
         
         // Return a special response to inform the client about the retry
-        return res.status(429).json({ 
-          error: "Rate limit reached. Retrying automatically...",
-          retryAfter,
-          shouldRetry: true
-        });
+        return {
+          error: {
+            code: 'rate_limit_exceeded',
+            message: `Rate limit reached. Retrying automatically...`
+          }
+        };
       }
 
       if (!responsesRes.ok) {
@@ -110,8 +140,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const responsesData = await callResponsesAPI();
     
     // If we got a retry response, return early
-    if (responsesData.shouldRetry) {
-      return responsesData;
+    if (responsesData.error?.code === 'rate_limit_exceeded') {
+      return res.status(429).json({ 
+        error: responsesData.error.message,
+        retryAfter: 5,
+        shouldRetry: true
+      });
     }
 
     if (responsesData.error) {
@@ -123,11 +157,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     // Extract the reply from responsesData.output by selecting the message with type "message".
     let reply: string | undefined;
-    const messageItem = responsesData.output?.find((item: any) => item.type === "message");
+    const messageItem = responsesData.output?.find((item: MessageContent) => item.type === "message");
     if (messageItem) {
       if (Array.isArray(messageItem.content)) {
         reply = messageItem.content
-          .map((part: any) => {
+          .map((part) => {
             if (typeof part === "string") {
               return part;
             } else if (typeof part === "object" && part.text) {
@@ -138,7 +172,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           })
           .join(" ");
       } else {
-        reply = messageItem.content;
+        reply = messageItem.content as string;
       }
     }
     if (!reply) {
@@ -165,13 +199,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       audio: base64Audio,
       previous_response_id: responsesData.id
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in API:", error);
     console.error("Error details:", {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
-    return res.status(500).json({ error: `Internal server error: ${error.message}` });
+    return res.status(500).json({ error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}` });
   }
 }

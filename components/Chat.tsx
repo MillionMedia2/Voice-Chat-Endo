@@ -20,6 +20,10 @@ interface ChatResponse {
   shouldRetry?: boolean;
 }
 
+interface AudioContextType extends AudioContext {
+  webkitAudioContext?: AudioContext;
+}
+
 const STORAGE_KEY = 'chat_conversation';
 const MAX_MESSAGE_LENGTH = 500;
 
@@ -79,61 +83,6 @@ const Chat = () => {
       return () => chatHistory.removeEventListener('scroll', handleScroll);
     }
   }, []);
-
-  const startListening = () => {
-    if (browserSupportsSpeechRecognition) {
-      setIsListening(true);
-      SpeechRecognition.startListening({ continuous: true });
-    }
-  };
-
-  const stopListening = () => {
-    if (browserSupportsSpeechRecognition) {
-      setIsListening(false);
-      SpeechRecognition.stopListening();
-    }
-  };
-
-  const clearConversation = () => {
-    if (window.confirm('Are you sure you want to clear the conversation?')) {
-      setConversation([]);
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  };
-
-  const exportConversation = () => {
-    const exportData = {
-      conversation,
-      timestamp: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-export-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const importConversation = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target?.result as string);
-          if (data.conversation && Array.isArray(data.conversation)) {
-            setConversation(data.conversation);
-          }
-        } catch (error) {
-          setError('Error importing conversation file');
-        }
-      };
-      reader.readAsText(file);
-    }
-  };
 
   const sendMessage = async (message: string) => {
     if (isLoading) return;
@@ -216,6 +165,69 @@ const Chat = () => {
     }
   };
 
+  // Handle transcript changes
+  useEffect(() => {
+    if (transcript && !isLoading) {
+      sendMessage(transcript);
+      resetTranscript();
+    }
+  }, [transcript, isLoading, resetTranscript, sendMessage]);
+
+  const startListening = () => {
+    if (browserSupportsSpeechRecognition) {
+      setIsListening(true);
+      SpeechRecognition.startListening({ continuous: true });
+    }
+  };
+
+  const stopListening = () => {
+    if (browserSupportsSpeechRecognition) {
+      setIsListening(false);
+      SpeechRecognition.stopListening();
+    }
+  };
+
+  const clearConversation = () => {
+    if (window.confirm('Are you sure you want to clear the conversation?')) {
+      setConversation([]);
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  };
+
+  const exportConversation = () => {
+    const exportData = {
+      conversation,
+      timestamp: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chat-export-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const importConversation = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target?.result as string);
+          if (data.conversation && Array.isArray(data.conversation)) {
+            setConversation(data.conversation);
+          }
+        } catch (error) {
+          setError('Error importing conversation file');
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
   const playOpenAIAudio = (base64Audio: string) => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -228,7 +240,7 @@ const Chat = () => {
     audio.preload = 'auto';
 
     // Set up audio context for better performance
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)() as AudioContextType;
     const source = audioContext.createMediaElementSource(audio);
     source.connect(audioContext.destination);
 
@@ -248,20 +260,7 @@ const Chat = () => {
     };
 
     // Start playing as soon as possible
-    if (audio.readyState >= 3) { // HAVE_ENOUGH_DATA
-      playAudio();
-    } else {
-      audio.oncanplaythrough = () => {
-        playAudio();
-        audio.oncanplaythrough = null; // Remove listener after first call
-      };
-    }
-
-    audio.onended = () => {
-      setIsAgentSpeaking(false);
-      audioContext.close(); // Clean up audio context
-      startListening();
-    };
+    playAudio();
   };
 
   const stopAudio = () => {
@@ -273,17 +272,6 @@ const Chat = () => {
     }
     startListening();
   };
-
-  // Listen to transcript if the user uses the mic button.
-  useEffect(() => {
-    if (transcript && transcript.trim() !== "") {
-      const timer = setTimeout(() => {
-        sendMessage(transcript.trim());
-        resetTranscript();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [transcript]);
 
   const scrollToBottom = () => {
     if (chatHistoryRef.current) {
