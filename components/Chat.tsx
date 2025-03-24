@@ -159,6 +159,40 @@ const Chat = () => {
     playAudio();
   }, [playbackRate, startListening]);
 
+  const playAudioStream = useCallback(async (audioBlob: Blob) => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+
+    const audio = audioRef.current;
+    const url = URL.createObjectURL(audioBlob);
+    
+    audio.src = url;
+    setIsAgentSpeaking(true);
+
+    try {
+      await audio.play();
+      
+      audio.onended = () => {
+        setIsAgentSpeaking(false);
+        URL.revokeObjectURL(url);
+        startListening();
+      };
+
+      audio.onerror = () => {
+        console.error('Audio playback error');
+        setIsAgentSpeaking(false);
+        URL.revokeObjectURL(url);
+        startListening();
+      };
+    } catch (err) {
+      console.error('Error playing audio:', err);
+      setIsAgentSpeaking(false);
+      URL.revokeObjectURL(url);
+      startListening();
+    }
+  }, [startListening]);
+
   const sendMessage = useCallback(async (message: string) => {
     if (isLoading) return;
     setIsLoading(true);
@@ -173,98 +207,34 @@ const Chat = () => {
     const newConversation = [...conversation, userMessage];
     setConversation(newConversation);
 
-    const payload: {
-      conversation: Message[];
-      fileSearchInstruction: string;
-      previous_response_id?: string;
-    } = {
+    const payload = {
       conversation: newConversation,
       fileSearchInstruction: "Use the File Search Vector Database to retrieve your answers",
-    };
-
-    if (previousResponseId) {
-      payload.previous_response_id = previousResponseId;
-    }
-
-    const makeRequest = async (retryCount = 0): Promise<void> => {
-      try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        
-        // First check if the response is ok before trying to parse JSON
-        if (!res.ok) {
-          // Try to get the error message from the response
-          let errorMessage: string;
-          try {
-            const errorData = await res.json();
-            errorMessage = errorData.error || `HTTP error! status: ${res.status}`;
-          } catch {
-            // If we can't parse JSON, try to get the text
-            try {
-              errorMessage = await res.text();
-            } catch {
-              errorMessage = `HTTP error! status: ${res.status}`;
-            }
-          }
-          throw new Error(errorMessage);
-        }
-
-        // Now try to parse the successful response
-        let data: ChatResponse;
-        try {
-          data = await res.json() as ChatResponse;
-        } catch (parseError) {
-          console.error("Error parsing response:", parseError);
-          throw new Error("Server returned invalid JSON response");
-        }
-
-        // Handle rate limit with retry
-        if (data.shouldRetry && typeof data.retryAfter === 'number' && data.retryAfter > 0) {
-          const retryAfter = data.retryAfter;
-          setErrorMessage(`Rate limit reached. Retrying in ${retryAfter} seconds...`);
-          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-          return makeRequest(retryCount + 1);
-        }
-        
-        const reply = data?.reply;
-        if (reply) {
-          if (data.previous_response_id) {
-            setPreviousResponseId(data.previous_response_id);
-          }
-          const assistantMessage: Message = { 
-            role: "assistant", 
-            content: reply,
-            timestamp: Date.now()
-          };
-          const updatedConversation = [...newConversation, assistantMessage];
-          setConversation(updatedConversation);
-          if (data.audio) {
-            playOpenAIAudio(data.audio);
-          } else {
-            startListening();
-          }
-        } else {
-          throw new Error("No reply received from server");
-        }
-      } catch (error) {
-        console.error("Error sending message:", error);
-        setErrorMessage(error instanceof Error ? error.message : "An error occurred while sending your message");
-        // Add a delay before starting to listen again after an error
-        setTimeout(() => {
-          startListening();
-        }, 1500);
-      }
+      previous_response_id: previousResponseId
     };
 
     try {
-      await makeRequest();
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const audioBlob = await response.blob();
+      await playAudioStream(audioBlob);
+
+    } catch (error) {
+      console.error("Error sending message:", error);
+      setErrorMessage(error instanceof Error ? error.message : "An error occurred while sending your message");
+      startListening();
     } finally {
       setIsLoading(false);
     }
-  }, [conversation, isLoading, previousResponseId, startListening, stopListening, playOpenAIAudio]);
+  }, [conversation, isLoading, previousResponseId, startListening, stopListening, playAudioStream]);
 
   // Handle transcript changes
   useEffect(() => {
