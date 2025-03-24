@@ -9,6 +9,8 @@ type Data = {
   audio?: string; // base64 encoded audio (mp3)
   previous_response_id?: string;
   error?: string;
+  retryAfter?: number;
+  shouldRetry?: boolean;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Data>) {
@@ -62,20 +64,58 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     console.log("Responses Payload:", responsesPayload);
 
-    // Call the Responses API.
-    const responsesRes = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify(responsesPayload)
-    });
+    // Function to extract retry time from error message
+    const getRetryAfterSeconds = (message: string) => {
+      const match = message.match(/try again in (\d+\.?\d*)s/);
+      return match ? parseFloat(match[1]) : 5; // default to 5 seconds if no time found
+    };
 
-    const responsesData = await responsesRes.json();
-    console.log("Responses Data:", responsesData);
+    // Function to make the API call with retry logic
+    const callResponsesAPI = async (retryCount = 0): Promise<any> => {
+      const responsesRes = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify(responsesPayload)
+      });
+
+      const responsesData = await responsesRes.json();
+      console.log("Responses API Status:", responsesRes.status);
+      console.log("Responses Data:", JSON.stringify(responsesData, null, 2));
+
+      // Check for rate limit error
+      if (responsesData.error?.code === 'rate_limit_exceeded') {
+        const retryAfter = getRetryAfterSeconds(responsesData.error.message);
+        console.log(`Rate limit hit. Retrying in ${retryAfter} seconds...`);
+        
+        // Return a special response to inform the client about the retry
+        return res.status(429).json({ 
+          error: "Rate limit reached. Retrying automatically...",
+          retryAfter,
+          shouldRetry: true
+        });
+      }
+
+      if (!responsesRes.ok) {
+        console.error("OpenAI API Error:", responsesData);
+        throw new Error(responsesData.error?.message || `OpenAI API error: ${responsesRes.status}`);
+      }
+
+      return responsesData;
+    };
+
+    // Make the initial API call with retry logic
+    const responsesData = await callResponsesAPI();
+    
+    // If we got a retry response, return early
+    if (responsesData.shouldRetry) {
+      return responsesData;
+    }
 
     if (responsesData.error) {
+      console.error("OpenAI Response Error:", responsesData.error);
       return res
         .status(500)
         .json({ error: responsesData.error.message || "OpenAI API error in responses" });
@@ -108,15 +148,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     // Convert the text reply into audio using the TTS API.
     const audioResponse = await openai.audio.speech.create({
       model: "tts-1",
-      voice: "coral",
-      input: reply
+      voice: "nova", // Nova is optimized for faster responses
+      input: reply,
+      response_format: "mp3",
+      speed: 1.0
     });
 
+    // Handle the audio data
     const arrayBuffer = await audioResponse.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const base64Audio = buffer.toString("base64");
 
-    // Return the reply, audio, and the new previous_response_id (the API response id) for conversation chaining.
+    // Return the reply, audio, and the new previous_response_id
     return res.status(200).json({
       reply,
       audio: base64Audio,
@@ -124,6 +167,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   } catch (error: any) {
     console.error("Error in API:", error);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error("Error details:", {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    return res.status(500).json({ error: `Internal server error: ${error.message}` });
   }
 }
