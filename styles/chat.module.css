@@ -34,7 +34,8 @@
 
 .headerButtons {
   display: flex;
-  gap: 8px;
+  gap: 12px;
+  align-items: center;
 }
 
 .headerButton {
@@ -42,16 +43,37 @@
   color: #fff;
   border: 1px solid #fff;
   border-radius: 4px;
-  padding: 4px 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 0.875rem;
   font-weight: 400;
   cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .headerButton:hover {
   background-color: #fff;
   color: #000;
+}
+
+.headerButton:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 1000;
 }
 
 .chatHistory {
@@ -259,7 +281,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-right: 12px;
 }
 
 .speedControl label {
@@ -272,7 +293,9 @@
   color: #fff;
   border: 1px solid #fff;
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 0 8px;
+  width: 70px;
+  height: 32px;
   font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.2s ease;

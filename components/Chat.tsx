@@ -338,7 +338,6 @@ const Chat = () => {
           <span>Chat with Plantz</span>
           <div className={styles.headerButtons}>
             <div className={styles.speedControl}>
-              <label>Speed:</label>
               <select 
                 value={playbackRate} 
                 onChange={(e) => {
@@ -357,21 +356,28 @@ const Chat = () => {
                 <option value={2.0}>2.0x</option>
               </select>
             </div>
-            <button onClick={clearConversation} className={styles.headerButton}>
-              Clear
+            <button 
+              onClick={clearConversation} 
+              className={styles.headerButton} 
+              aria-label="Clear conversation"
+              data-tooltip="Clear"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
             </button>
-            <button onClick={exportConversation} className={styles.headerButton}>
-              Export
+            <button 
+              onClick={exportConversation} 
+              className={styles.headerButton} 
+              aria-label="Export conversation"
+              data-tooltip="Download"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
             </button>
-            <label className={styles.headerButton}>
-              Import
-              <input
-                type="file"
-                accept=".json"
-                onChange={importConversation}
-                style={{ display: 'none' }}
-              />
-            </label>
           </div>
         </div>
         {errorMessage && (
@@ -452,7 +458,12 @@ const Chat = () => {
             disabled={isLoading}
             aria-label={isAgentSpeaking ? "Stop speaking" : "Start speaking"}
           >
-            {isAgentSpeaking ? '⏹️' : isListening ? '🎤' : '🎤'}
+            {isAgentSpeaking ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <rect x="9" y="9" width="6" height="6" />
+              </svg>
+            ) : isListening ? '🎤' : '🎤'}
           </button>
         </div>
       </div>
