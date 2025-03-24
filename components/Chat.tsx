@@ -30,12 +30,14 @@ interface WindowWithAudioContext extends Window {
 }
 
 const STORAGE_KEY = 'chat_conversation';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MAX_MESSAGE_LENGTH = 500;
 
 const Chat = () => {
   const [mounted, setMounted] = useState(false);
   const { transcript, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
   const [conversation, setConversation] = useState<Message[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [inputText, setInputText] = useState<string>("");
   const [previousResponseId, setPreviousResponseId] = useState<string | null>(null);
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
@@ -45,6 +47,7 @@ const Chat = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const [isListening, setIsListening] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Load conversation from localStorage on mount
@@ -283,6 +286,7 @@ const Chat = () => {
     startListening();
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const scrollToBottom = () => {
     if (chatHistoryRef.current) {
       chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
@@ -299,18 +303,38 @@ const Chat = () => {
 
   return (
     <Layout>
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <h1>Endometriosis Assistant</h1>
-          <div className={styles.controls}>
-            <button onClick={clearConversation} className={styles.button}>
-              Clear Conversation
+      <div className={styles.chatContainer}>
+        <div className={styles.chatHeader}>
+          <span>Chat with Plantz</span>
+          <div className={styles.headerButtons}>
+            <div className={styles.speedControl}>
+              <label>Speed:</label>
+              <select 
+                value={playbackRate} 
+                onChange={(e) => {
+                  const newRate = parseFloat(e.target.value);
+                  setPlaybackRate(newRate);
+                  if (audioRef.current) {
+                    audioRef.current.playbackRate = newRate;
+                  }
+                }}
+                className={styles.speedSelect}
+              >
+                <option value={0.8}>0.8x</option>
+                <option value={1.0}>1.0x</option>
+                <option value={1.2}>1.2x</option>
+                <option value={1.5}>1.5x</option>
+                <option value={2.0}>2.0x</option>
+              </select>
+            </div>
+            <button onClick={clearConversation} className={styles.headerButton}>
+              Clear
             </button>
-            <button onClick={exportConversation} className={styles.button}>
-              Export Chat
+            <button onClick={exportConversation} className={styles.headerButton}>
+              Export
             </button>
-            <label className={styles.importButton}>
-              Import Chat
+            <label className={styles.headerButton}>
+              Import
               <input
                 type="file"
                 accept=".json"
@@ -320,55 +344,86 @@ const Chat = () => {
             </label>
           </div>
         </div>
-
-        <div className={styles.chatContainer}>
-          <div ref={chatHistoryRef} className={styles.chatHistory}>
-            {conversation.map((message, index) => (
-              <div
-                key={index}
-                className={`${styles.message} ${
-                  message.role === "user" ? styles.userMessage : styles.assistantMessage
-                }`}
-              >
-                <div className={styles.messageContent}>{message.content}</div>
-              </div>
-            ))}
-            {errorMessage && (
-              <div className={styles.errorMessage}>
-                {errorMessage}
-              </div>
-            )}
+        {errorMessage && (
+          <div className={styles.errorMessage}>
+            {errorMessage}
           </div>
+        )}
+        <div className={styles.chatHistory} ref={chatHistoryRef}>
+          {conversation.map((msg, index) => (
+            <div
+              key={index}
+              className={`${styles.message} ${msg.role === "assistant" ? styles.assistant : styles.user}`}
+            >
+              <div className={styles.messageContent}>{msg.content}</div>
+              <div className={styles.messageTimestamp}>
+                {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className={styles.loadingMessage}>
+              <div className={styles.loadingSpinner}></div>
+              Thinking...
+            </div>
+          )}
+          {showScrollButton && (
+            <button
+              onClick={scrollToBottom}
+              className={styles.scrollButton}
+              aria-label="Scroll to bottom"
+            >
+              ⬇️
+            </button>
+          )}
         </div>
-
-        <div className={styles.inputContainer}>
-          <div className={styles.controls}>
-            <button
-              onClick={isListening ? stopListening : startListening}
-              className={`${styles.button} ${isListening ? styles.active : ''}`}
-            >
-              {isListening ? "Stop Recording" : "Start Recording"}
-            </button>
-            <button
-              onClick={isAgentSpeaking ? stopAudio : undefined}
-              className={`${styles.button} ${isAgentSpeaking ? styles.active : ''}`}
-              disabled={!isAgentSpeaking}
-            >
-              Stop Speaking
-            </button>
-            <select
-              value={playbackRate}
-              onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-              className={styles.select}
-            >
-              <option value="0.5">0.5x</option>
-              <option value="0.75">0.75x</option>
-              <option value="1.0">1.0x</option>
-              <option value="1.25">1.25x</option>
-              <option value="1.5">1.5x</option>
-              <option value="2.0">2.0x</option>
-            </select>
+        <div className={styles.chatInputContainer}>
+          <div className={styles.inputWrapper}>
+            <input
+              type="text"
+              placeholder="Type your message here..."
+              value={inputText}
+              onChange={(e) => {
+                if (e.target.value.length <= MAX_MESSAGE_LENGTH) {
+                  setInputText(e.target.value);
+                }
+              }}
+              className={styles.chatInput}
+              disabled={isLoading}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (inputText.trim() !== "") {
+                    sendMessage(inputText.trim());
+                    setInputText("");
+                  }
+                }
+              }}
+            />
+            <div className={styles.charCount}>
+              {inputText.length}/{MAX_MESSAGE_LENGTH}
+            </div>
           </div>
+          <button
+            onClick={() => {
+              if (inputText.trim() !== "") {
+                sendMessage(inputText.trim());
+                setInputText("");
+              }
+            }}
+            className={styles.sendButton}
+            disabled={isLoading || inputText.length === 0}
+          >
+            Send
+          </button>
+          <button
+            onClick={() => isAgentSpeaking ? stopAudio() : startListening()}
+            className={`${styles.speechButton} ${isAgentSpeaking ? styles.active : ''} ${isListening ? styles.listening : ''}`}
+            disabled={isLoading}
+            aria-label={isAgentSpeaking ? "Stop speaking" : "Start speaking"}
+          >
+            {isAgentSpeaking ? '⏹️' : isListening ? '🎤' : '🎤'}
+          </button>
         </div>
       </div>
     </Layout>
