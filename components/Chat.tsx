@@ -194,7 +194,13 @@ const Chat = () => {
           body: JSON.stringify(payload),
         });
         
-        const data = await res.json() as ChatResponse;
+        let data: ChatResponse;
+        try {
+          data = await res.json() as ChatResponse;
+        } catch (parseError) {
+          console.error("Error parsing response:", parseError);
+          throw new Error("Invalid response from server");
+        }
 
         // Handle rate limit with retry
         if (res.status === 429 && data.shouldRetry && typeof data.retryAfter === 'number' && data.retryAfter > 0) {
@@ -229,7 +235,10 @@ const Chat = () => {
       } catch (error) {
         console.error("Error sending message:", error);
         setErrorMessage(error instanceof Error ? error.message : "An error occurred while sending your message");
-        startListening();
+        // Add a delay before starting to listen again after an error
+        setTimeout(() => {
+          startListening();
+        }, 1500);
       }
     };
 
