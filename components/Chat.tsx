@@ -252,7 +252,7 @@ const Chat = () => {
     <Layout>
       <div className={styles.chatContainer}>
         <div className={styles.chatHeader}>
-          <span>Chat with Plantz</span>
+          <span>Chat with Plantz Endometriosis Specialist</span>
           <div className={styles.headerButtons}>
             <button 
               onClick={clearConversation} 
@@ -315,7 +315,7 @@ const Chat = () => {
           <div className={styles.inputWrapper}>
             <input
               type="text"
-              placeholder="Type your message here..."
+              placeholder="Type here or click mic to start chat"
               value={inputText}
               onChange={(e) => {
                 if (e.target.value.length <= MAX_MESSAGE_LENGTH) {
