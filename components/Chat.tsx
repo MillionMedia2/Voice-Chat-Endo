@@ -157,7 +157,7 @@ const Chat = () => {
     };
 
     // Start playing as soon as possible
-    playAudio();
+      playAudio();
   }, [playbackRate, startListening]);
 
   const playAudioStream = useCallback(async (audioBlob: Blob) => {
@@ -173,8 +173,8 @@ const Chat = () => {
 
     try {
       await audio.play();
-      
-      audio.onended = () => {
+
+    audio.onended = () => {
         setIsAgentSpeaking(false);
         URL.revokeObjectURL(url);
         startListening();
@@ -194,48 +194,87 @@ const Chat = () => {
     }
   }, [startListening]);
 
-  const sendMessage = useCallback(async (message: string) => {
-    if (isLoading) return;
-    setIsLoading(true);
-    setErrorMessage(null);
-    stopListening();
-
-    const userMessage: Message = { 
-      role: "user", 
-      content: message,
-      timestamp: Date.now()
-    };
-    const newConversation = [...conversation, userMessage];
-    setConversation(newConversation);
-
-    const payload = {
-      conversation: newConversation,
-      fileSearchInstruction: "Use the File Search Vector Database to retrieve your answers",
-      previous_response_id: previousResponseId
-    };
-
+  const sendMessage = async (text: string) => {
     try {
+      setIsLoading(true);
+      setError(null);
+
+      // Stop listening when sending a message
+      stopListening();
+
+      // Create a new user message
+      const userMessage: Message = {
+        role: "user",
+        content: text,
+        timestamp: Date.now(),
+      };
+
+      // Update conversation with user message
+      setConversation((prev) => [...prev, userMessage]);
+
+      // Send the request to the chat endpoint
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conversation: [...conversation, userMessage],
+        }),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
+      // Create an audio blob from the response
       const audioBlob = await response.blob();
-      await playAudioStream(audioBlob);
+      const audioUrl = URL.createObjectURL(audioBlob);
 
-    } catch (error) {
-      console.error("Error sending message:", error);
-      setErrorMessage(error instanceof Error ? error.message : "An error occurred while sending your message");
-      startListening();
+      // Create a new audio element if it doesn't exist
+      if (!audioRef.current) {
+        audioRef.current = new Audio();
+      }
+
+      // Set up the audio element
+      const audio = audioRef.current;
+      audio.src = audioUrl;
+      audio.playbackRate = playbackRate;
+
+      // Play the audio
+      try {
+        await audio.play();
+        setIsAgentSpeaking(true);
+
+        // Handle audio completion
+        audio.onended = () => {
+          setIsAgentSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          startListening();
+        };
+
+        // Handle audio errors
+        audio.onerror = (error) => {
+          console.error("Audio playback error:", error);
+          setIsAgentSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          startListening();
+        };
+      } catch (err) {
+        console.error("Error playing audio:", err);
+        setIsAgentSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+        startListening();
+      }
+
+    } catch (err) {
+      console.error("Error:", err);
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsLoading(false);
     }
-  }, [conversation, isLoading, previousResponseId, startListening, stopListening, playAudioStream]);
+  };
 
   // Handle transcript changes
   useEffect(() => {
@@ -372,7 +411,7 @@ const Chat = () => {
             </div>
           )}
           {showScrollButton && (
-            <button
+            <button 
               onClick={scrollToBottom}
               className={styles.scrollButton}
               aria-label="Scroll to bottom"

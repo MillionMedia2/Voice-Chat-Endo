@@ -58,7 +58,7 @@ export default async function handler(
     const lastUserMessage = conversation
       .slice()
       .reverse()
-      .find((msg: Message) => msg.role === "user");
+      .find((msg: any) => msg.role === "user");
 
     if (!lastUserMessage) {
       return res.status(400).json({ error: "No user message found" });
@@ -97,21 +97,24 @@ export default async function handler(
     });
 
     if (!responsesRes.ok) {
+      const errorText = await responsesRes.text();
+      console.error("OpenAI API error response:", errorText);
       throw new Error(`OpenAI API error: ${responsesRes.status}`);
     }
 
     const responsesData = await responsesRes.json();
+    console.log("Received response data:", responsesData);
     
     // Extract the reply from responsesData.output
     let reply: string | undefined;
-    const messageItem = responsesData.output?.find((item: MessageItem) => item.type === "message");
+    const messageItem = responsesData.output?.find((item: any) => item.type === "message");
     if (messageItem) {
       if (Array.isArray(messageItem.content)) {
         reply = messageItem.content
-          .map((part: string | { text?: string }) => {
+          .map((part: any) => {
             if (typeof part === "string") {
               return part;
-            } else if (part.text) {
+            } else if (typeof part === "object" && part.text) {
               return part.text;
             } else {
               return JSON.stringify(part);
@@ -126,6 +129,8 @@ export default async function handler(
     if (!reply) {
       throw new Error("No reply generated from OpenAI");
     }
+
+    console.log("Generated reply:", reply);
 
     // Set up streaming response for audio
     res.setHeader("Content-Type", "audio/mpeg");
@@ -146,28 +151,23 @@ export default async function handler(
 
     console.log("Audio response received, streaming to client...");
 
-    // Get the readable stream
-    const stream = audioResponse.body;
+    // Convert the Web ReadableStream to a Node.js Readable stream
+    const stream = audioResponse.body as unknown as Readable;
     
-    // Read the stream and write chunks to response
-    try {
-      const reader = stream.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          console.log("Stream complete");
-          break;
-        }
-        // Write each chunk to the response
-        res.write(value);
-      }
-      res.end();
-    } catch (error) {
-      console.error("Error streaming audio:", error);
+    // Pipe the stream directly to the response
+    stream.pipe(res);
+
+    // Handle stream events
+    stream.on("end", () => {
+      console.log("Stream reading complete");
+    });
+
+    stream.on("error", (error) => {
+      console.error("Stream error:", error);
       if (!res.headersSent) {
         res.status(500).json({ error: "Error streaming audio" });
       }
-    }
+    });
 
   } catch (error) {
     console.error("Error in chat endpoint:", error);
