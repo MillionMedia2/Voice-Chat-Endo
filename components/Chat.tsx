@@ -11,12 +11,39 @@ interface Message {
   timestamp?: number;
 }
 
+interface AudioState {
+  isPlaying: boolean;
+  isBuffering: boolean;
+  isError: boolean;
+  errorMessage: string | null;
+  bufferProgress: number;
+  currentTime: number;
+  duration: number;
+}
+
+interface SpeechRecognitionHook {
+  transcript: string;
+  resetTranscript: () => void;
+  browserSupportsSpeechRecognition: boolean;
+  isListening: boolean;
+  startListening: () => void;
+  stopListening: () => void;
+}
+
 const STORAGE_KEY = 'chat_conversation';
 const MAX_MESSAGE_LENGTH = 500;
+const MAX_BUFFER_SIZE = 50 * 1024 * 1024; // 50MB buffer limit
 
 const Chat = () => {
   const [mounted, setMounted] = useState(false);
-  const { transcript, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
+  const { 
+    transcript, 
+    resetTranscript, 
+    browserSupportsSpeechRecognition, 
+    isListening: isListeningState, 
+    startListening: startListeningHook, 
+    stopListening: stopListeningHook 
+  } = useSpeechRecognition() as SpeechRecognitionHook;
   const [conversation, setConversation] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>("");
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
@@ -26,6 +53,16 @@ const Chat = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previousResponseId, setPreviousResponseId] = useState<string | null>(null);
+  const [audioState, setAudioState] = useState<AudioState>({
+    isPlaying: false,
+    isBuffering: false,
+    isError: false,
+    errorMessage: null,
+    bufferProgress: 0,
+    currentTime: 0,
+    duration: 0
+  });
 
   // Load conversation from localStorage on mount
   useEffect(() => {
@@ -72,14 +109,14 @@ const Chat = () => {
   const startListening = useCallback(() => {
     if (browserSupportsSpeechRecognition) {
       setIsListening(true);
-      SpeechRecognition.startListening({ continuous: true });
+      startListeningHook();
     }
-  }, [browserSupportsSpeechRecognition]);
+  }, [browserSupportsSpeechRecognition, startListeningHook]);
 
   const stopListening = useCallback(() => {
     if (browserSupportsSpeechRecognition) {
       setIsListening(false);
-      SpeechRecognition.stopListening();
+      stopListeningHook();
     }
     // Stop audio playback if it's playing
     if (audioRef.current) {
@@ -88,7 +125,7 @@ const Chat = () => {
       setIsAgentSpeaking(false);
       startListening();
     }
-  }, [browserSupportsSpeechRecognition, startListening]);
+  }, [browserSupportsSpeechRecognition, startListeningHook, startListening]);
 
   // Cleanup audio resources on unmount
   useEffect(() => {
@@ -96,6 +133,7 @@ const Chat = () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = '';
+        audioRef.current = null;
       }
     };
   }, []);
@@ -104,6 +142,7 @@ const Chat = () => {
     try {
       setIsLoading(true);
       setError(null);
+      setAudioState(prev => ({ ...prev, isError: false, errorMessage: null }));
 
       // Stop listening when sending a message
       stopListening();
@@ -126,6 +165,7 @@ const Chat = () => {
         },
         body: JSON.stringify({
           conversation: [...conversation, userMessage],
+          previous_response_id: previousResponseId,
         }),
       });
 
@@ -134,8 +174,20 @@ const Chat = () => {
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
+      // Get the response ID from the response headers
+      const responseId = response.headers.get('x-response-id');
+      if (responseId) {
+        setPreviousResponseId(responseId);
+      }
+
       // Create an audio blob from the response
       const audioBlob = await response.blob();
+      
+      // Check blob size against buffer limit
+      if (audioBlob.size > MAX_BUFFER_SIZE) {
+        throw new Error("Audio file too large");
+      }
+
       const audioUrl = URL.createObjectURL(audioBlob);
 
       // Create a new audio element if it doesn't exist
@@ -147,14 +199,40 @@ const Chat = () => {
       const audio = audioRef.current;
       audio.src = audioUrl;
 
+      // Set up audio event handlers
+      audio.oncanplaythrough = () => {
+        setAudioState(prev => ({ ...prev, isBuffering: false }));
+      };
+
+      audio.onwaiting = () => {
+        setAudioState(prev => ({ ...prev, isBuffering: true }));
+      };
+
+      audio.onprogress = () => {
+        if (audio.buffered.length > 0) {
+          const progress = (audio.buffered.end(audio.buffered.length - 1) / audio.duration) * 100;
+          setAudioState(prev => ({ ...prev, bufferProgress: progress }));
+        }
+      };
+
+      audio.ontimeupdate = () => {
+        setAudioState(prev => ({ 
+          ...prev, 
+          currentTime: audio.currentTime,
+          duration: audio.duration
+        }));
+      };
+
       // Play the audio
       try {
         await audio.play();
         setIsAgentSpeaking(true);
+        setAudioState(prev => ({ ...prev, isPlaying: true }));
 
         // Handle audio completion
         audio.onended = () => {
           setIsAgentSpeaking(false);
+          setAudioState(prev => ({ ...prev, isPlaying: false }));
           URL.revokeObjectURL(audioUrl);
           startListening();
         };
@@ -163,6 +241,12 @@ const Chat = () => {
         audio.onerror = (error) => {
           console.error("Audio playback error:", error);
           setIsAgentSpeaking(false);
+          setAudioState(prev => ({ 
+            ...prev, 
+            isError: true,
+            errorMessage: "Error playing audio",
+            isPlaying: false
+          }));
           URL.revokeObjectURL(audioUrl);
           startListening();
         };
@@ -170,12 +254,19 @@ const Chat = () => {
         // Handle audio pause/stop
         audio.onpause = () => {
           setIsAgentSpeaking(false);
+          setAudioState(prev => ({ ...prev, isPlaying: false }));
           URL.revokeObjectURL(audioUrl);
         };
 
       } catch (err) {
         console.error("Error playing audio:", err);
         setIsAgentSpeaking(false);
+        setAudioState(prev => ({ 
+          ...prev, 
+          isError: true,
+          errorMessage: "Failed to play audio",
+          isPlaying: false
+        }));
         URL.revokeObjectURL(audioUrl);
         startListening();
       }
@@ -183,10 +274,15 @@ const Chat = () => {
     } catch (err) {
       console.error("Error:", err);
       setError(err instanceof Error ? err.message : "An error occurred");
+      setAudioState(prev => ({ 
+        ...prev, 
+        isError: true,
+        errorMessage: err instanceof Error ? err.message : "An error occurred"
+      }));
     } finally {
       setIsLoading(false);
     }
-  }, [conversation, stopListening, startListening]);
+  }, [conversation, stopListening, startListening, previousResponseId]);
 
   // Handle transcript changes
   useEffect(() => {
@@ -196,7 +292,7 @@ const Chat = () => {
         // Only send if we have more than one word and the transcript hasn't changed
         if (transcript.split(' ').length > 1) {
           sendMessage(transcript);
-          resetTranscript();
+        resetTranscript();
         }
       }, 1500);
 
