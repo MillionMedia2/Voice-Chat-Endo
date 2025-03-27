@@ -1,7 +1,7 @@
 "use client";
 import "regenerator-runtime/runtime";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
+import { useSpeechRecognition } from "react-speech-recognition";
 import Layout from "../components/Layout";
 import styles from "../styles/chat.module.css";
 
@@ -40,7 +40,6 @@ const Chat = () => {
     transcript, 
     resetTranscript, 
     browserSupportsSpeechRecognition, 
-    isListening: isListeningState, 
     startListening: startListeningHook, 
     stopListening: stopListeningHook 
   } = useSpeechRecognition() as SpeechRecognitionHook;
@@ -54,6 +53,9 @@ const Chat = () => {
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [previousResponseId, setPreviousResponseId] = useState<string | null>(null);
+  
+  // State for managing audio playback UI feedback (loading, errors, progress)
+  // Used in the UI components to show loading states and error messages
   const [audioState, setAudioState] = useState<AudioState>({
     isPlaying: false,
     isBuffering: false,
@@ -125,7 +127,7 @@ const Chat = () => {
       setIsAgentSpeaking(false);
       startListening();
     }
-  }, [browserSupportsSpeechRecognition, startListeningHook, startListening]);
+  }, [browserSupportsSpeechRecognition, stopListeningHook, startListening]);
 
   // Cleanup audio resources on unmount
   useEffect(() => {
