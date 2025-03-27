@@ -381,6 +381,11 @@ const Chat = () => {
             {error}
           </div>
         )}
+        {audioState.isError && audioState.errorMessage && (
+          <div className={styles.errorMessage}>
+            {audioState.errorMessage}
+          </div>
+        )}
         <div className={styles.chatHistory} ref={chatHistoryRef}>
           {conversation.map((msg, index) => (
             <div
@@ -393,10 +398,10 @@ const Chat = () => {
               </div>
             </div>
           ))}
-          {isLoading && (
+          {(isLoading || audioState.isBuffering) && (
             <div className={styles.loadingMessage}>
               <div className={styles.loadingSpinner}></div>
-              Thinking...
+              {audioState.isBuffering ? 'Loading audio...' : 'Thinking...'}
             </div>
           )}
           {showScrollButton && (
