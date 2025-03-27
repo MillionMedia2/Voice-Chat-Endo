@@ -11,24 +11,6 @@ interface Message {
   timestamp?: number;
 }
 
-interface ChatResponse {
-  reply?: string;
-  audio?: string;
-  previous_response_id?: string;
-  error?: string;
-  retryAfter?: number;
-  shouldRetry?: boolean;
-}
-
-interface AudioContextType extends AudioContext {
-  webkitAudioContext?: AudioContext;
-}
-
-interface WindowWithAudioContext extends Window {
-  webkitAudioContext?: typeof AudioContext;
-  AudioContext: typeof AudioContext;
-}
-
 const STORAGE_KEY = 'chat_conversation';
 const MAX_MESSAGE_LENGTH = 500;
 
@@ -99,7 +81,24 @@ const Chat = () => {
       setIsListening(false);
       SpeechRecognition.stopListening();
     }
-  }, [browserSupportsSpeechRecognition]);
+    // Stop audio playback if it's playing
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsAgentSpeaking(false);
+      startListening();
+    }
+  }, [browserSupportsSpeechRecognition, startListening]);
+
+  // Cleanup audio resources on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+    };
+  }, []);
 
   const sendMessage = useCallback(async (text: string) => {
     try {
@@ -167,6 +166,13 @@ const Chat = () => {
           URL.revokeObjectURL(audioUrl);
           startListening();
         };
+
+        // Handle audio pause/stop
+        audio.onpause = () => {
+          setIsAgentSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+        };
+
       } catch (err) {
         console.error("Error playing audio:", err);
         setIsAgentSpeaking(false);
