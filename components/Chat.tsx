@@ -30,25 +30,19 @@ interface WindowWithAudioContext extends Window {
 }
 
 const STORAGE_KEY = 'chat_conversation';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MAX_MESSAGE_LENGTH = 500;
 
 const Chat = () => {
   const [mounted, setMounted] = useState(false);
   const { transcript, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
   const [conversation, setConversation] = useState<Message[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [inputText, setInputText] = useState<string>("");
-  const [previousResponseId, setPreviousResponseId] = useState<string | null>(null);
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [isListening, setIsListening] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
-  const [isListening, setIsListening] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [showScrollButton, setShowScrollButton] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Load conversation from localStorage on mount
@@ -107,94 +101,7 @@ const Chat = () => {
     }
   }, [browserSupportsSpeechRecognition]);
 
-  const playOpenAIAudio = useCallback((base64Audio: string) => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    // Create and configure audio element
-    const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
-    audio.playbackRate = playbackRate;
-    audio.preload = 'auto';
-
-    // Set up audio context for better performance
-    const windowWithAudio = window as WindowWithAudioContext;
-    const AudioContextClass = windowWithAudio.AudioContext || windowWithAudio.webkitAudioContext;
-    if (!AudioContextClass) {
-      throw new Error('AudioContext not supported in this browser');
-    }
-    const audioContext = new AudioContextClass() as AudioContextType;
-    const source = audioContext.createMediaElementSource(audio);
-    source.connect(audioContext.destination);
-
-    // Update state and handle playback
-    setIsAgentSpeaking(true);
-    audioRef.current = audio;
-
-    const playAudio = async () => {
-      try {
-        await audioContext.resume();
-        await audio.play();
-        console.log("Audio playing...");
-        
-        // Add event listener for when audio finishes playing
-        audio.addEventListener('ended', () => {
-          setIsAgentSpeaking(false);
-          // Add a 1.5-second delay before starting to listen again
-          setTimeout(() => {
-            startListening();
-          }, 1500);
-        });
-      } catch (err) {
-        console.error("Error playing audio:", err);
-        setIsAgentSpeaking(false);
-        // Add a 1.5-second delay before starting to listen again even if there's an error
-        setTimeout(() => {
-          startListening();
-        }, 1500);
-      }
-    };
-
-    // Start playing as soon as possible
-      playAudio();
-  }, [playbackRate, startListening]);
-
-  const playAudioStream = useCallback(async (audioBlob: Blob) => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-    }
-
-    const audio = audioRef.current;
-    const url = URL.createObjectURL(audioBlob);
-    
-    audio.src = url;
-    setIsAgentSpeaking(true);
-
-    try {
-      await audio.play();
-
-    audio.onended = () => {
-        setIsAgentSpeaking(false);
-        URL.revokeObjectURL(url);
-        startListening();
-      };
-
-      audio.onerror = () => {
-        console.error('Audio playback error');
-        setIsAgentSpeaking(false);
-        URL.revokeObjectURL(url);
-        startListening();
-      };
-    } catch (err) {
-      console.error('Error playing audio:', err);
-      setIsAgentSpeaking(false);
-      URL.revokeObjectURL(url);
-      startListening();
-    }
-  }, [startListening]);
-
-  const sendMessage = async (text: string) => {
+  const sendMessage = useCallback(async (text: string) => {
     try {
       setIsLoading(true);
       setError(null);
@@ -240,7 +147,6 @@ const Chat = () => {
       // Set up the audio element
       const audio = audioRef.current;
       audio.src = audioUrl;
-      audio.playbackRate = playbackRate;
 
       // Play the audio
       try {
@@ -274,7 +180,7 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [conversation, stopListening, startListening]);
 
   // Handle transcript changes
   useEffect(() => {
@@ -314,16 +220,6 @@ const Chat = () => {
     URL.revokeObjectURL(url);
   }, [conversation]);
 
-  const stopAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current = null;
-      setIsAgentSpeaking(false);
-    }
-    startListening();
-  };
-
   const scrollToBottom = () => {
     if (chatHistoryRef.current) {
       chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
@@ -337,17 +233,6 @@ const Chat = () => {
       startListening();
     }
   }, [isListening, startListening, stopListening]);
-
-  const endSession = useCallback(() => {
-    if (isListening) {
-      stopListening();
-    }
-    if (isAgentSpeaking) {
-      stopAudio();
-    }
-    setIsListening(false);
-    setIsAgentSpeaking(false);
-  }, [isListening, isAgentSpeaking, stopListening, stopAudio]);
 
   if (!mounted) {
     return null; // or a loading spinner
@@ -387,9 +272,9 @@ const Chat = () => {
             </button>
           </div>
         </div>
-        {errorMessage && (
+        {error && (
           <div className={styles.errorMessage}>
-            {errorMessage}
+            {error}
           </div>
         )}
         <div className={styles.chatHistory} ref={chatHistoryRef}>
@@ -460,7 +345,7 @@ const Chat = () => {
             Send
           </button>
           <button
-            onClick={isAgentSpeaking ? stopAudio : toggleListening}
+            onClick={isAgentSpeaking ? stopListening : toggleListening}
             className={`${styles.speechButton} ${(isListening || isAgentSpeaking) ? styles.active : ''}`}
             disabled={isLoading}
             aria-label={isAgentSpeaking ? "Stop audio" : "Start listening"}
