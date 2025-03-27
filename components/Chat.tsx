@@ -1,7 +1,7 @@
 "use client";
 import "regenerator-runtime/runtime";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useSpeechRecognition } from "react-speech-recognition";
+import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 import Layout from "../components/Layout";
 import styles from "../styles/chat.module.css";
 
@@ -39,9 +39,7 @@ const Chat = () => {
   const { 
     transcript, 
     resetTranscript, 
-    browserSupportsSpeechRecognition, 
-    startListening: startListeningHook, 
-    stopListening: stopListeningHook 
+    browserSupportsSpeechRecognition
   } = useSpeechRecognition() as SpeechRecognitionHook;
   const [conversation, setConversation] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>("");
@@ -111,14 +109,14 @@ const Chat = () => {
   const startListening = useCallback(() => {
     if (browserSupportsSpeechRecognition) {
       setIsListening(true);
-      startListeningHook();
+      SpeechRecognition.startListening({ continuous: true });
     }
-  }, [browserSupportsSpeechRecognition, startListeningHook]);
+  }, [browserSupportsSpeechRecognition]);
 
   const stopListening = useCallback(() => {
     if (browserSupportsSpeechRecognition) {
       setIsListening(false);
-      stopListeningHook();
+      SpeechRecognition.stopListening();
     }
     // Stop audio playback if it's playing
     if (audioRef.current) {
@@ -127,7 +125,7 @@ const Chat = () => {
       setIsAgentSpeaking(false);
       startListening();
     }
-  }, [browserSupportsSpeechRecognition, stopListeningHook, startListening]);
+  }, [browserSupportsSpeechRecognition, startListening]);
 
   // Cleanup audio resources on unmount
   useEffect(() => {
