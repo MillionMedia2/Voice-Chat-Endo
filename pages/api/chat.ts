@@ -45,13 +45,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  // Add CORS headers
-  res.setHeader('Access-Control-Allow-Origin', 'https://plantz.io');
+  // Simple CORS headers that work everywhere
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  
-  // Handle preflight requests
+  res.setHeader('Access-Control-Allow-Headers', '*');
+
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
