@@ -45,6 +45,9 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  // Set a longer timeout
+  res.setTimeout(30000);
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -94,7 +97,10 @@ export default async function handler(
     if (!responsesRes.ok) {
       const errorText = await responsesRes.text();
       console.error("OpenAI API error response:", errorText);
-      throw new Error(`OpenAI API error: ${responsesRes.status}`);
+      return res.status(responsesRes.status).json({ 
+        error: `OpenAI API error: ${responsesRes.status}`,
+        details: errorText
+      });
     }
 
     const responsesData = await responsesRes.json() as ResponseData;
@@ -122,7 +128,7 @@ export default async function handler(
     }
 
     if (!reply) {
-      throw new Error("No reply generated from OpenAI");
+      return res.status(500).json({ error: "No reply generated from OpenAI" });
     }
 
     console.log("Generated reply:", reply);
@@ -132,44 +138,50 @@ export default async function handler(
       res.setHeader('x-response-id', responsesData.id);
     }
 
-    // Generate audio response using GPT-4
-    const audioResponse = await openai.audio.speech.create({
-      model: "tts-1",
-      voice: "alloy",
-      input: reply,
-    });
+    try {
+      // Generate audio response using GPT-4
+      const audioResponse = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: "alloy",
+        input: reply,
+      });
 
-    // Set up streaming response
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Transfer-Encoding", "chunked");
+      // Set up streaming response
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Transfer-Encoding", "chunked");
 
-    // Convert Web ReadableStream to Node.js Readable stream
-    const stream = Readable.from(audioResponse.body as unknown as AsyncIterable<Uint8Array>);
-    
-    // Pipe the stream to the response
-    stream.pipe(res);
+      // Convert Web ReadableStream to Node.js Readable stream
+      const stream = Readable.from(audioResponse.body as unknown as AsyncIterable<Uint8Array>);
+      
+      // Pipe the stream to the response
+      stream.pipe(res);
 
-    // Handle stream events
-    stream.on('end', () => {
-      console.log('Stream ended');
-    });
+      // Handle stream events
+      stream.on('end', () => {
+        console.log('Stream ended');
+      });
 
-    stream.on('error', (error) => {
-      console.error('Stream error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: "Error streaming audio" });
-      }
-    });
+      stream.on('error', (error) => {
+        console.error('Stream error:', error);
+        // Don't try to send JSON response here since we've already started streaming
+        stream.destroy();
+      });
 
-    // Handle client disconnect
-    req.on('close', () => {
-      stream.destroy();
-    });
+      // Handle client disconnect
+      req.on('close', () => {
+        stream.destroy();
+      });
+
+    } catch (audioError) {
+      console.error("Audio generation error:", audioError);
+      return res.status(500).json({ error: "Error generating audio response" });
+    }
 
   } catch (error) {
     console.error("Error:", error);
+    // Only send error response if headers haven't been sent
     if (!res.headersSent) {
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
     }
   }
 }
