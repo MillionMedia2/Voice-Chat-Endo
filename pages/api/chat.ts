@@ -45,8 +45,8 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  // Set a longer timeout
-  res.setTimeout(30000);
+  // Set a longer timeout (60 seconds)
+  res.setTimeout(60000);
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -85,98 +85,119 @@ export default async function handler(
     }
 
     console.log("Generating text response...");
-    const responsesRes = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify(responsesPayload)
-    });
-
-    if (!responsesRes.ok) {
-      const errorText = await responsesRes.text();
-      console.error("OpenAI API error response:", errorText);
-      return res.status(responsesRes.status).json({ 
-        error: `OpenAI API error: ${responsesRes.status}`,
-        details: errorText
-      });
-    }
-
-    const responsesData = await responsesRes.json() as ResponseData;
-    console.log("Received response data:", responsesData);
     
-    // Extract the reply from responsesData.output
-    let reply: string | undefined;
-    const messageItem = responsesData.output?.find((item: ResponseOutputItem) => item.type === "message");
-    if (messageItem) {
-      if (Array.isArray(messageItem.content)) {
-        reply = messageItem.content
-          .map((part: string | { text: string }) => {
-            if (typeof part === "string") {
-              return part;
-            } else if (typeof part === "object" && part.text) {
-              return part.text;
-            } else {
-              return JSON.stringify(part);
-            }
-          })
-          .join(" ");
-      } else {
-        reply = messageItem.content as string;
-      }
-    }
-
-    if (!reply) {
-      return res.status(500).json({ error: "No reply generated from OpenAI" });
-    }
-
-    console.log("Generated reply:", reply);
-
-    // Set the response ID in the headers
-    if (responsesData.id) {
-      res.setHeader('x-response-id', responsesData.id);
-    }
-
+    // Add timeout handling for the fetch request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 second timeout for the fetch
+    
     try {
-      // Generate audio response using GPT-4
-      const audioResponse = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: "alloy",
-        input: reply,
+      const responsesRes = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify(responsesPayload),
+        signal: controller.signal
       });
-
-      // Set up streaming response
-      res.setHeader("Content-Type", "audio/mpeg");
-      res.setHeader("Transfer-Encoding", "chunked");
-
-      // Convert Web ReadableStream to Node.js Readable stream
-      const stream = Readable.from(audioResponse.body as unknown as AsyncIterable<Uint8Array>);
       
-      // Pipe the stream to the response
-      stream.pipe(res);
-
-      // Handle stream events
-      stream.on('end', () => {
-        console.log('Stream ended');
-      });
-
-      stream.on('error', (error) => {
-        console.error('Stream error:', error);
-        // Don't try to send JSON response here since we've already started streaming
-        stream.destroy();
-      });
-
-      // Handle client disconnect
-      req.on('close', () => {
-        stream.destroy();
-      });
-
-    } catch (audioError) {
-      console.error("Audio generation error:", audioError);
-      return res.status(500).json({ error: "Error generating audio response" });
+      clearTimeout(timeoutId);
+      
+      if (!responsesRes.ok) {
+        const errorText = await responsesRes.text();
+        console.error("OpenAI API error response:", errorText);
+        return res.status(responsesRes.status).json({ 
+          error: `OpenAI API error: ${responsesRes.status}`,
+          details: errorText
+        });
+      }
+      
+      const responsesData = await responsesRes.json() as ResponseData;
+      console.log("Received response data:", responsesData);
+      
+      // Extract the reply from responsesData.output
+      let reply: string | undefined;
+      const messageItem = responsesData.output?.find((item: ResponseOutputItem) => item.type === "message");
+      if (messageItem) {
+        if (Array.isArray(messageItem.content)) {
+          reply = messageItem.content
+            .map((part: string | { text: string }) => {
+              if (typeof part === "string") {
+                return part;
+              } else if (typeof part === "object" && part.text) {
+                return part.text;
+              } else {
+                return JSON.stringify(part);
+              }
+            })
+            .join(" ");
+        } else {
+          reply = messageItem.content as string;
+        }
+      }
+      
+      if (!reply) {
+        return res.status(500).json({ error: "No reply generated from OpenAI" });
+      }
+      
+      console.log("Generated reply:", reply);
+      
+      // Set the response ID in the headers
+      if (responsesData.id) {
+        res.setHeader('x-response-id', responsesData.id);
+      }
+      
+      try {
+        // Generate audio response using GPT-4
+        const audioResponse = await openai.audio.speech.create({
+          model: "tts-1",
+          voice: "alloy",
+          input: reply,
+        });
+        
+        // Set up streaming response
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Transfer-Encoding", "chunked");
+        
+        // Convert Web ReadableStream to Node.js Readable stream
+        const stream = Readable.from(audioResponse.body as unknown as AsyncIterable<Uint8Array>);
+        
+        // Pipe the stream to the response
+        stream.pipe(res);
+        
+        // Handle stream events
+        stream.on('end', () => {
+          console.log('Stream ended');
+        });
+        
+        stream.on('error', (error) => {
+          console.error('Stream error:', error);
+          // Don't try to send JSON response here since we've already started streaming
+          stream.destroy();
+        });
+        
+        // Handle client disconnect
+        req.on('close', () => {
+          stream.destroy();
+        });
+        
+      } catch (audioError) {
+        console.error("Audio generation error:", audioError);
+        return res.status(500).json({ error: "Error generating audio response" });
+      }
+      
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      console.error("Fetch error:", fetchError);
+      
+      // Check if it's an abort error (timeout)
+      if (fetchError.name === 'AbortError') {
+        return res.status(504).json({ error: "Request timed out. Please try again." });
+      }
+      
+      return res.status(500).json({ error: "Error connecting to OpenAI API" });
     }
-
+    
   } catch (error) {
     console.error("Error:", error);
     // Only send error response if headers haven't been sent

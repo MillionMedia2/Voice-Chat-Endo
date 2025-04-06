@@ -123,7 +123,6 @@ const Chat = () => {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       setIsAgentSpeaking(false);
-      startListening();
     }
   }, [browserSupportsSpeechRecognition, startListening]);
 
