@@ -19,6 +19,7 @@ interface AudioState {
   bufferProgress: number;
   currentTime: number;
   duration: number;
+  isStreaming: boolean;
 }
 
 interface SpeechRecognitionHook {
@@ -30,9 +31,14 @@ interface SpeechRecognitionHook {
   stopListening: () => void;
 }
 
+declare global {
+  interface Window {
+    webkitAudioContext: typeof AudioContext;
+  }
+}
+
 const STORAGE_KEY = 'chat_conversation';
 const MAX_MESSAGE_LENGTH = 500;
-const MAX_BUFFER_SIZE = 50 * 1024 * 1024; // 50MB buffer limit
 
 const Chat = () => {
   const [mounted, setMounted] = useState(false);
@@ -52,8 +58,13 @@ const Chat = () => {
   const [error, setError] = useState<string | null>(null);
   const [previousResponseId, setPreviousResponseId] = useState<string | null>(null);
   
-  // State for managing audio playback UI feedback (loading, errors, progress)
-  // Used in the UI components to show loading states and error messages
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+  const sourceBufferRef = useRef<SourceBuffer | null>(null);
+  
+  const audioDurationRef = useRef<number>(0);
+  const audioStartTimeRef = useRef<number>(0);
+  const audioEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
   const [audioState, setAudioState] = useState<AudioState>({
     isPlaying: false,
     isBuffering: false,
@@ -61,10 +72,14 @@ const Chat = () => {
     errorMessage: null,
     bufferProgress: 0,
     currentTime: 0,
-    duration: 0
+    duration: 0,
+    isStreaming: false
   });
 
-  // Load conversation from localStorage on mount
+  const [isStreaming, setIsStreaming] = useState(false);
+  const audioQueue = useRef<Uint8Array[]>([]);
+  const isBufferUpdating = useRef(false);
+
   useEffect(() => {
     const savedConversation = localStorage.getItem(STORAGE_KEY);
     if (savedConversation) {
@@ -78,21 +93,18 @@ const Chat = () => {
     return () => setMounted(false);
   }, []);
 
-  // Save conversation to localStorage whenever it changes
   useEffect(() => {
     if (mounted) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversation));
     }
   }, [conversation, mounted]);
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (chatHistoryRef.current) {
       chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
     }
   }, [conversation]);
 
-  // Add scroll event listener
   useEffect(() => {
     const chatHistory = chatHistoryRef.current;
     if (chatHistory) {
@@ -113,28 +125,240 @@ const Chat = () => {
     }
   }, [browserSupportsSpeechRecognition]);
 
-  const stopListening = useCallback(() => {
-    if (browserSupportsSpeechRecognition) {
-      setIsListening(false);
-      SpeechRecognition.stopListening();
+  const handleStreamingAudio = useCallback(async (response: Response) => {
+    if (!response.body) {
+      throw new Error("Response body is null");
     }
-    // Stop audio playback if it's playing
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      setIsAgentSpeaking(false);
-    }
-  }, [browserSupportsSpeechRecognition, startListening]);
 
-  // Cleanup audio resources on unmount
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-        audioRef.current = null;
+    try {
+      console.log("Starting audio streaming process");
+      
+      setIsStreaming(true);
+      setIsAgentSpeaking(true);
+      setAudioState(prev => ({ 
+        ...prev, 
+        isPlaying: true,
+        isStreaming: true,
+        isBuffering: true
+      }));
+      
+      const newMediaSource = new MediaSource();
+      console.log("Created new MediaSource, initial state:", newMediaSource.readyState);
+      mediaSourceRef.current = newMediaSource;
+      
+      if (!audioRef.current) {
+        throw new Error("Audio element not found");
       }
-    };
+      
+      audioRef.current.src = URL.createObjectURL(newMediaSource);
+      console.log("Set audio source to MediaSource URL");
+      
+      const sourceBufferPromise = new Promise<SourceBuffer>((resolve, reject) => {
+        const sourceOpenHandler = () => {
+          console.log("MediaSource opened, state:", newMediaSource.readyState);
+          try {
+            const newSourceBuffer = newMediaSource.addSourceBuffer('audio/mpeg');
+            console.log("Added source buffer to MediaSource");
+            sourceBufferRef.current = newSourceBuffer;
+            resolve(newSourceBuffer);
+          } catch (err) {
+            console.error("Error setting up source buffer:", err);
+            reject(err);
+          }
+        };
+        
+        newMediaSource.addEventListener('sourceopen', sourceOpenHandler);
+        console.log("Added sourceopen event listener to MediaSource");
+        
+        const timeoutId = setTimeout(() => {
+          console.warn("MediaSource sourceopen event timed out, current state:", newMediaSource.readyState);
+          newMediaSource.removeEventListener('sourceopen', sourceOpenHandler);
+          reject(new Error("MediaSource sourceopen event timed out"));
+        }, 5000);
+        
+        newMediaSource.addEventListener('sourceopen', () => {
+          console.log("Clearing sourceopen timeout");
+          clearTimeout(timeoutId);
+        }, { once: true });
+      });
+
+      const sourceBuffer = await sourceBufferPromise;
+      console.log("Source buffer obtained successfully");
+      
+      if (audioRef.current) {
+        console.log("Attempting to play audio");
+        try {
+          const playPromise = audioRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              console.log("Audio playback started successfully");
+              setAudioState(prev => ({ ...prev, isBuffering: false }));
+              
+              audioStartTimeRef.current = Date.now();
+              
+              if (audioEndTimerRef.current) {
+                clearTimeout(audioEndTimerRef.current);
+                audioEndTimerRef.current = null;
+              }
+            }).catch(error => {
+              console.error("Error playing audio:", error);
+              console.log("Adding click listener to play on next user interaction");
+              document.addEventListener('click', function playOnClick() {
+                console.log("User clicked, attempting to play audio");
+                audioRef.current?.play().catch(err => console.error("Error playing on click:", err));
+                document.removeEventListener('click', playOnClick);
+              }, { once: true });
+            });
+          }
+        } catch (err) {
+          console.error("Error in play attempt:", err);
+        }
+      }
+
+      console.log("Starting to read response stream");
+      const reader = response.body.getReader();
+      let totalBytesReceived = 0;
+      
+      const pendingChunks: Uint8Array[] = [];
+      let isProcessingChunk = false;
+      
+      const processNextChunk = async () => {
+        if (isProcessingChunk || pendingChunks.length === 0 || !sourceBuffer) {
+          return;
+        }
+        
+        isProcessingChunk = true;
+        const chunk = pendingChunks.shift();
+        
+        if (chunk) {
+          try {
+            if (sourceBuffer.updating) {
+              console.log("Source buffer is updating, waiting for updateend");
+              await new Promise<void>((resolve) => {
+                const updateEndHandler = () => {
+                  sourceBuffer.removeEventListener('updateend', updateEndHandler);
+                  resolve();
+                };
+                sourceBuffer.addEventListener('updateend', updateEndHandler);
+              });
+            }
+            
+            console.log(`Appending chunk of ${chunk.length} bytes to source buffer`);
+            sourceBuffer.appendBuffer(chunk);
+            
+            await new Promise<void>((resolve) => {
+              const updateEndHandler = () => {
+                sourceBuffer.removeEventListener('updateend', updateEndHandler);
+                resolve();
+              };
+              sourceBuffer.addEventListener('updateend', updateEndHandler);
+            });
+          } catch (err) {
+            console.error("Error appending chunk:", err);
+          }
+        }
+        
+        isProcessingChunk = false;
+        
+        if (pendingChunks.length > 0) {
+          processNextChunk();
+        }
+      };
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) {
+          console.log("Stream complete, total bytes received:", totalBytesReceived);
+          break;
+        }
+        
+        totalBytesReceived += value.length;
+        console.log(`Received chunk of ${value.length} bytes, total: ${totalBytesReceived}`);
+        
+        pendingChunks.push(value);
+        
+        if (!isProcessingChunk) {
+          processNextChunk();
+        }
+      }
+      
+      while (pendingChunks.length > 0 || isProcessingChunk) {
+        console.log(`Waiting for ${pendingChunks.length} pending chunks to be processed`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      console.log("Checking MediaSource state before ending stream:", mediaSourceRef.current?.readyState);
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      console.log("MediaSource state after delay:", mediaSourceRef.current?.readyState);
+      
+      if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
+        console.log("Ending media source stream");
+        mediaSourceRef.current.endOfStream();
+        console.log("MediaSource stream ended successfully");
+      } else {
+        console.warn("MediaSource not open when trying to end stream, state:", mediaSourceRef.current?.readyState);
+        
+        console.log("Waiting longer for MediaSource to open...");
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log("MediaSource state after longer delay:", mediaSourceRef.current?.readyState);
+        
+        if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
+          console.log("Ending media source stream after longer delay");
+          mediaSourceRef.current.endOfStream();
+          console.log("MediaSource stream ended successfully after longer delay");
+        } else {
+          console.warn("MediaSource still not open after longer delay, state:", mediaSourceRef.current?.readyState);
+          
+          if (audioRef.current) {
+            const duration = audioRef.current.duration;
+            console.log(`Audio duration: ${duration} seconds`);
+            
+            if (duration && duration > 0) {
+              audioDurationRef.current = duration;
+              
+              const endTime = duration * 1000 + 500;
+              console.log(`Setting timer for ${endTime}ms to detect audio end`);
+              
+              if (audioEndTimerRef.current) {
+                clearTimeout(audioEndTimerRef.current);
+              }
+              
+              audioEndTimerRef.current = setTimeout(() => {
+                console.log("Audio end timer fired");
+                setIsAgentSpeaking(false);
+                setIsStreaming(false);
+                setAudioState(prev => ({ 
+                  ...prev, 
+                  isPlaying: false,
+                  isStreaming: false
+                }));
+              }, endTime);
+            }
+          }
+        }
+      }
+      
+    } catch (err) {
+      console.error("Error in streaming audio:", err);
+      setError(err instanceof Error ? err.message : "Error streaming audio");
+      setAudioState(prev => ({ 
+        ...prev, 
+        isError: true,
+        errorMessage: err instanceof Error ? err.message : "Error streaming audio",
+        isStreaming: false
+      }));
+    } finally {
+      console.log("Streaming process completed");
+      setIsStreaming(false);
+      setAudioState(prev => ({ 
+        ...prev, 
+        isStreaming: false,
+        isBuffering: false
+      }));
+    }
   }, []);
 
   const sendMessage = useCallback(async (text: string) => {
@@ -143,20 +367,21 @@ const Chat = () => {
       setError(null);
       setAudioState(prev => ({ ...prev, isError: false, errorMessage: null }));
 
-      // Stop listening when sending a message
-      stopListening();
+      if (isListening) {
+        setIsListening(false);
+        SpeechRecognition.stopListening();
+      }
 
-      // Create a new user message
       const userMessage: Message = {
         role: "user",
         content: text,
         timestamp: Date.now(),
       };
 
-      // Update conversation with user message
       setConversation((prev) => [...prev, userMessage]);
 
-      // Send the request to the chat endpoint
+      console.log("Sending request to API with previous_response_id:", previousResponseId);
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -170,105 +395,17 @@ const Chat = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error("API error response:", errorData);
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      // Get the response ID from the response headers
       const responseId = response.headers.get('x-response-id');
       if (responseId) {
+        console.log("Received response ID:", responseId);
         setPreviousResponseId(responseId);
       }
 
-      // Create an audio blob from the response
-      const audioBlob = await response.blob();
-      
-      // Check blob size against buffer limit
-      if (audioBlob.size > MAX_BUFFER_SIZE) {
-        throw new Error("Audio file too large");
-      }
-
-      const audioUrl = URL.createObjectURL(audioBlob);
-
-      // Create a new audio element if it doesn't exist
-      if (!audioRef.current) {
-        audioRef.current = new Audio();
-      }
-
-      // Set up the audio element
-      const audio = audioRef.current;
-      audio.src = audioUrl;
-
-      // Set up audio event handlers
-      audio.oncanplaythrough = () => {
-        setAudioState(prev => ({ ...prev, isBuffering: false }));
-      };
-
-      audio.onwaiting = () => {
-        setAudioState(prev => ({ ...prev, isBuffering: true }));
-      };
-
-      audio.onprogress = () => {
-        if (audio.buffered.length > 0) {
-          const progress = (audio.buffered.end(audio.buffered.length - 1) / audio.duration) * 100;
-          setAudioState(prev => ({ ...prev, bufferProgress: progress }));
-        }
-      };
-
-      audio.ontimeupdate = () => {
-        setAudioState(prev => ({ 
-          ...prev, 
-          currentTime: audio.currentTime,
-          duration: audio.duration
-        }));
-      };
-
-      // Play the audio
-      try {
-        await audio.play();
-        setIsAgentSpeaking(true);
-        setAudioState(prev => ({ ...prev, isPlaying: true }));
-
-        // Handle audio completion
-        audio.onended = () => {
-          setIsAgentSpeaking(false);
-          setAudioState(prev => ({ ...prev, isPlaying: false }));
-          URL.revokeObjectURL(audioUrl);
-          startListening();
-        };
-
-        // Handle audio errors
-        audio.onerror = (error) => {
-          console.error("Audio playback error:", error);
-          setIsAgentSpeaking(false);
-          setAudioState(prev => ({ 
-            ...prev, 
-            isError: true,
-            errorMessage: "Error playing audio",
-            isPlaying: false
-          }));
-          URL.revokeObjectURL(audioUrl);
-          startListening();
-        };
-
-        // Handle audio pause/stop
-        audio.onpause = () => {
-          setIsAgentSpeaking(false);
-          setAudioState(prev => ({ ...prev, isPlaying: false }));
-          URL.revokeObjectURL(audioUrl);
-        };
-
-      } catch (err) {
-        console.error("Error playing audio:", err);
-        setIsAgentSpeaking(false);
-        setAudioState(prev => ({ 
-          ...prev, 
-          isError: true,
-          errorMessage: "Failed to play audio",
-          isPlaying: false
-        }));
-        URL.revokeObjectURL(audioUrl);
-        startListening();
-      }
+      await handleStreamingAudio(response);
 
     } catch (err) {
       console.error("Error:", err);
@@ -281,17 +418,15 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [conversation, stopListening, startListening, previousResponseId]);
+  }, [conversation, previousResponseId, handleStreamingAudio, isListening]);
 
-  // Handle transcript changes
   useEffect(() => {
     if (transcript && !isLoading) {
-      // Add a delay before sending the message to ensure we have a complete thought
       const timeoutId = setTimeout(() => {
-        // Only send if we have more than one word and the transcript hasn't changed
         if (transcript.split(' ').length > 1) {
+          console.log("Sending transcript:", transcript);
           sendMessage(transcript);
-        resetTranscript();
+          resetTranscript();
         }
       }, 1500);
 
@@ -329,14 +464,104 @@ const Chat = () => {
 
   const toggleListening = useCallback(() => {
     if (isListening) {
-      stopListening();
+      console.log("Stopping microphone");
+      setIsListening(false);
+      SpeechRecognition.stopListening();
+    } else if (isAgentSpeaking || isStreaming) {
+      console.log("Stopping audio playback");
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        setIsAgentSpeaking(false);
+        setAudioState(prev => ({ ...prev, isPlaying: false }));
+      }
+      
+      if (sourceBufferRef.current) {
+        try {
+          if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
+            console.log("Aborting source buffer");
+            sourceBufferRef.current.abort();
+          } else {
+            console.log("MediaSource not open, skipping source buffer abort");
+          }
+        } catch (err) {
+          console.error("Error aborting source buffer:", err);
+        }
+      }
+      
+      if (mediaSourceRef.current) {
+        try {
+          if (mediaSourceRef.current.readyState === 'open') {
+            console.log("Ending media source");
+            mediaSourceRef.current.endOfStream();
+          } else {
+            console.log("MediaSource not open, skipping endOfStream");
+          }
+        } catch (err) {
+          console.error("Error ending media source:", err);
+        }
+      }
+      
+      if (audioEndTimerRef.current) {
+        clearTimeout(audioEndTimerRef.current);
+        audioEndTimerRef.current = null;
+      }
+      
+      setIsStreaming(false);
+      setAudioState(prev => ({ 
+        ...prev, 
+        isPlaying: false,
+        isStreaming: false
+      }));
+      
+      if (browserSupportsSpeechRecognition) {
+        console.log("Starting microphone after stopping audio");
+        setIsListening(true);
+        SpeechRecognition.startListening({ continuous: true });
+      }
     } else {
-      startListening();
+      if (browserSupportsSpeechRecognition) {
+        console.log("Starting speech recognition");
+        setIsListening(true);
+        SpeechRecognition.startListening({ continuous: true });
+      }
     }
-  }, [isListening, startListening, stopListening]);
+  }, [isListening, isAgentSpeaking, isStreaming, browserSupportsSpeechRecognition, sourceBufferRef, mediaSourceRef]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      const handleAudioEnded = () => {
+        console.log("Audio ended event fired");
+        setIsAgentSpeaking(false);
+      };
+      
+      audioRef.current.addEventListener('ended', handleAudioEnded);
+      
+      return () => {
+        if (audioRef.current) {
+          audioRef.current.removeEventListener('ended', handleAudioEnded);
+        }
+      };
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+      
+      if (audioEndTimerRef.current) {
+        clearTimeout(audioEndTimerRef.current);
+        audioEndTimerRef.current = null;
+      }
+    };
+  }, []);
 
   if (!mounted) {
-    return null; // or a loading spinner
+    return null;
   }
 
   if (!browserSupportsSpeechRecognition) {
@@ -373,6 +598,115 @@ const Chat = () => {
             </button>
           </div>
         </div>
+        <audio
+          ref={audioRef}
+          onEnded={() => {
+            console.log("Audio playback ended - Initial state:", {
+              isAgentSpeaking,
+              isStreaming,
+              isListening,
+              audioState: { ...audioState }
+            });
+            
+            setIsAgentSpeaking(false);
+            setIsStreaming(false);
+            setAudioState(prev => ({ 
+              ...prev, 
+              isPlaying: false,
+              isStreaming: false
+            }));
+            
+            console.log("Audio playback ended - After state updates:", {
+              isAgentSpeaking: false,
+              isStreaming: false,
+              isListening,
+              audioState: { 
+                ...audioState,
+                isPlaying: false,
+                isStreaming: false
+              }
+            });
+            
+            setTimeout(() => {
+              console.log("Timeout fallback - Current state:", {
+                isAgentSpeaking,
+                isStreaming,
+                isListening,
+                audioState: { ...audioState }
+              });
+              
+              if (isAgentSpeaking || isStreaming) {
+                console.log("Forcing state updates in timeout fallback");
+                setIsAgentSpeaking(false);
+                setIsStreaming(false);
+                setAudioState(prev => ({ 
+                  ...prev, 
+                  isPlaying: false,
+                  isStreaming: false
+                }));
+              }
+              
+              if (browserSupportsSpeechRecognition && !isListening) {
+                console.log("Starting microphone in timeout fallback");
+                setIsListening(true);
+                SpeechRecognition.startListening({ continuous: true });
+              }
+            }, 500);
+            
+            if (browserSupportsSpeechRecognition) {
+              console.log("Audio finished, starting microphone");
+              setIsListening(true);
+              SpeechRecognition.startListening({ continuous: true });
+            }
+          }}
+          onTimeUpdate={(e) => {
+            const audioElement = e.currentTarget;
+            if (audioElement.duration && audioElement.currentTime > 0 && 
+                audioElement.duration - audioElement.currentTime < 0.5) {
+              console.log("Audio near end detected via timeupdate:", {
+                currentTime: audioElement.currentTime,
+                duration: audioElement.duration,
+                remaining: audioElement.duration - audioElement.currentTime
+              });
+              
+              audioElement.dataset.nearEnd = "true";
+            }
+          }}
+          onPlay={() => {
+            console.log("Audio started playing");
+            if (audioRef.current) {
+              audioRef.current.dataset.nearEnd = "false";
+            }
+          }}
+          onPause={() => {
+            console.log("Audio paused");
+            if (audioRef.current && audioRef.current.dataset.nearEnd === "true") {
+              console.log("Audio finished playing (detected via pause near end)");
+              
+              setIsAgentSpeaking(false);
+              setIsStreaming(false);
+              setAudioState(prev => ({ 
+                ...prev, 
+                isPlaying: false,
+                isStreaming: false
+              }));
+              
+              if (browserSupportsSpeechRecognition) {
+                console.log("Starting microphone after audio finished (detected via pause)");
+                setIsListening(true);
+                SpeechRecognition.startListening({ continuous: true });
+              }
+            }
+          }}
+          onError={(e) => {
+            console.error("Audio error:", e);
+            setAudioState(prev => ({ 
+              ...prev, 
+              isError: true,
+              errorMessage: "Error playing audio"
+            }));
+          }}
+        />
         {error && (
           <div className={styles.errorMessage}>
             {error}
@@ -451,15 +785,21 @@ const Chat = () => {
             Send
           </button>
           <button
-            onClick={isAgentSpeaking ? stopListening : toggleListening}
-            className={`${styles.speechButton} ${(isListening || isAgentSpeaking) ? styles.active : ''}`}
+            onClick={toggleListening}
+            className={`${styles.speechButton} ${(isListening || isAgentSpeaking || isStreaming) ? styles.active : ''}`}
             disabled={isLoading}
-            aria-label={isAgentSpeaking ? "Stop audio" : "Start listening"}
+            aria-label={isAgentSpeaking || isStreaming ? "Stop audio" : isListening ? "Stop listening" : "Start listening"}
           >
-            {isAgentSpeaking ? (
+            {isAgentSpeaking || isStreaming ? (
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="6" y="4" width="4" height="16" />
                 <rect x="14" y="4" width="4" height="16" />
+              </svg>
+            ) : isListening ? (
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="22" />
               </svg>
             ) : (
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
