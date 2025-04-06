@@ -1,4 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import OpenAI from "openai";
 import DEFAULT_INSTRUCTION from "../../config/instruction";
 
@@ -8,6 +9,7 @@ interface ConversationMessage {
   timestamp?: number;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface ConversationRequest {
   conversation: ConversationMessage[];
   previous_response_id?: string;
