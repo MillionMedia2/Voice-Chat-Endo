@@ -2,12 +2,14 @@ import { NextApiRequest, NextApiResponse } from "next";
 import OpenAI from "openai";
 import DEFAULT_INSTRUCTION from "../../config/instruction";
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface Message {
   role: string;
   content: string;
   timestamp?: number;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface ResponsesPayload {
   model: string;
   instructions: string;
@@ -44,6 +46,7 @@ export default async function handler(
   }
 
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { conversation, previous_response_id } = req.body;
     
     if (!conversation || !Array.isArray(conversation)) {
@@ -108,6 +111,7 @@ export default async function handler(
     const buffer = Buffer.from(await mp3.arrayBuffer());
 
     // Create a response object
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const responsesData: ResponseData = {
       output: [{
         type: 'text',
