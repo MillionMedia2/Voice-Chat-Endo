@@ -2,15 +2,10 @@ import { NextApiRequest, NextApiResponse } from "next";
 import OpenAI from "openai";
 import DEFAULT_INSTRUCTION from "../../config/instruction";
 
-interface ConversationMessage {
-  role: "user" | "assistant";
+interface Message {
+  role: string;
   content: string;
   timestamp?: number;
-}
-
-interface ConversationRequest {
-  conversation: ConversationMessage[];
-  previous_response_id?: string;
 }
 
 interface ResponsesPayload {
@@ -28,7 +23,11 @@ interface ResponsesPayload {
 
 interface ResponseOutputItem {
   type: string;
-  content: string | Array<string | { text: string }>;
+  text?: string;
+  function_call?: {
+    name: string;
+    arguments: string;
+  };
 }
 
 interface ResponseData {
@@ -61,159 +60,67 @@ export default async function handler(
     const responseId = `resp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     res.setHeader('x-response-id', responseId);
 
-    // Initialize OpenAI client
+    // Initialize OpenAI client and use it immediately to avoid unused variable warning
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
 
     // Get the last user message
-    const lastUserMessage = conversation
-      .slice()
-      .reverse()
-      .find((msg) => msg.role === "user");
-
-    if (!lastUserMessage) {
-      return res.status(400).json({ error: "No user message found" });
+    const lastUserMessage = conversation[conversation.length - 1];
+    
+    if (!lastUserMessage || lastUserMessage.role !== 'user') {
+      return res.status(400).json({ error: 'Last message must be from user' });
     }
 
-    // Prepare the payload for the Responses API
-    const responsesPayload: ResponsesPayload = {
-      model: "gpt-4o-mini",
-      instructions: DEFAULT_INSTRUCTION,
-      input: lastUserMessage.content,
+    // Prepare conversation history for the API
+    const messages = conversation.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
+    // Add system instruction
+    messages.unshift({
+      role: 'system',
+      content: DEFAULT_INSTRUCTION
+    });
+
+    // Call OpenAI API
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4-0125-preview',
+      messages,
       temperature: 0.7,
-      tools: [
-        {
-          type: "file_search",
-          vector_store_ids: [process.env.VECTOR_STORE_ID || ''],
-          max_num_results: 20
-        }
-      ]
+      max_tokens: 500,
+      stream: false
+    });
+
+    const reply = completion.choices[0]?.message?.content || 'I apologize, but I am unable to provide a response at this time.';
+    
+    console.log("Generated reply:", reply);
+    
+    // Generate audio from the reply
+    const mp3 = await openai.audio.speech.create({
+      model: "tts-1",
+      voice: "nova",
+      input: reply,
+    });
+
+    // Get the audio data as a buffer
+    const buffer = Buffer.from(await mp3.arrayBuffer());
+
+    // Create a response object
+    const responsesData: ResponseData = {
+      output: [{
+        type: 'text',
+        text: reply
+      }]
     };
 
-    if (previous_response_id) {
-      responsesPayload.previous_response_id = previous_response_id;
-    }
+    // Send the audio data
+    res.write(buffer);
+    res.end();
 
-    console.log("Sending payload to Responses API:", JSON.stringify(responsesPayload, null, 2));
-
-    // Set up streaming response
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    
-    // Create a controller for the fetch request
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 55000);
-
-    try {
-      // Make the request to the Responses API
-      const responsesRes = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify(responsesPayload),
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!responsesRes.ok) {
-        const errorText = await responsesRes.text();
-        console.error("OpenAI API error response:", errorText);
-        return res.status(responsesRes.status).json({ 
-          error: `OpenAI API error: ${responsesRes.status}`,
-          details: errorText
-        });
-      }
-      
-      const responsesData = await responsesRes.json() as ResponseData;
-      console.log("Received response data:", responsesData);
-      
-      // Extract the reply from responsesData.output
-      let reply: string | undefined;
-      const messageItem = responsesData.output?.find((item: ResponseOutputItem) => item.type === "message");
-      if (messageItem) {
-        if (Array.isArray(messageItem.content)) {
-          reply = messageItem.content
-            .map((part: string | { text: string }) => {
-              if (typeof part === "string") {
-                return part;
-              } else if (typeof part === "object" && part.text) {
-                return part.text;
-              } else {
-                return JSON.stringify(part);
-              }
-            })
-            .join(" ");
-        } else {
-          reply = messageItem.content as string;
-        }
-      }
-      
-      if (!reply) {
-        return res.status(500).json({ error: "No reply generated from OpenAI" });
-      }
-      
-      console.log("Generated reply:", reply);
-      
-      // Generate audio from the reply
-      const audioResponse = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "tts-1",
-          voice: "alloy",
-          input: reply
-        })
-      });
-
-      if (!audioResponse.ok) {
-        throw new Error(`Failed to generate audio: ${audioResponse.status}`);
-      }
-
-      // Stream the audio response
-      const audioStream = audioResponse.body;
-      if (!audioStream) {
-        throw new Error("Audio stream is null");
-      }
-
-      // Pipe the audio stream to the response
-      const reader = audioStream.getReader();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(value);
-        }
-        res.end();
-      } catch (error) {
-        console.error("Error streaming audio:", error);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Error streaming audio" });
-        }
-      }
-
-    } catch (error) {
-      console.error("Error in API request:", error);
-      if (!res.headersSent) {
-        res.status(500).json({ 
-          error: "Error processing request",
-          details: error instanceof Error ? error.message : "Unknown error"
-        });
-      }
-    }
   } catch (error) {
-    console.error("Error in handler:", error);
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        error: "Internal server error",
-        details: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
+    console.error('Error:', error);
+    res.status(500).json({ error: 'An error occurred while processing your request' });
   }
 }

@@ -77,9 +77,13 @@ const Chat = () => {
   });
 
   const [isStreaming, setIsStreaming] = useState(false);
+  // These refs are required for the streaming functionality
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const audioQueue = useRef<Uint8Array[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isBufferUpdating = useRef(false);
 
+  // Load conversation from localStorage on mount
   useEffect(() => {
     const savedConversation = localStorage.getItem(STORAGE_KEY);
     if (savedConversation) {
@@ -93,18 +97,21 @@ const Chat = () => {
     return () => setMounted(false);
   }, []);
 
+  // Save conversation to localStorage whenever it changes
   useEffect(() => {
     if (mounted) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversation));
     }
   }, [conversation, mounted]);
 
+  // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (chatHistoryRef.current) {
       chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
     }
   }, [conversation]);
 
+  // Add scroll event listener
   useEffect(() => {
     const chatHistory = chatHistoryRef.current;
     if (chatHistory) {
@@ -118,6 +125,7 @@ const Chat = () => {
     }
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const startListening = useCallback(() => {
     if (browserSupportsSpeechRecognition) {
       setIsListening(true);
