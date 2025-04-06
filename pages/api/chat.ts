@@ -186,12 +186,12 @@ export default async function handler(
         return res.status(500).json({ error: "Error generating audio response" });
       }
       
-    } catch (fetchError: any) {
+    } catch (fetchError: unknown) {
       clearTimeout(timeoutId);
       console.error("Fetch error:", fetchError);
       
       // Check if it's an abort error (timeout)
-      if (fetchError.name === 'AbortError') {
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
         return res.status(504).json({ error: "Request timed out. Please try again." });
       }
       
