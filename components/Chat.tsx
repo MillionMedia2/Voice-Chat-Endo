@@ -618,16 +618,6 @@ const Chat = () => {
               </svg>
             </button>
           </div>
-          <div className={styles.headerDropdown}>
-            <select
-              value={answerType}
-              onChange={(e) => setAnswerType(e.target.value as 'Standard' | 'Advanced')}
-              className={styles.dropdownSelect}
-            >
-              <option value="Standard">Standard</option>
-              <option value="Advanced">Advanced</option>
-            </select>
-          </div>
         </div>
         <audio
           ref={audioRef}

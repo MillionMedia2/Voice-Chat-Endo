@@ -34,7 +34,7 @@
 
 .headerButtons {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   align-items: center;
 }
 
@@ -399,7 +399,7 @@
 }
 
 .headerDropdown {
-  margin-left: 8px;
+  margin-left: 4px;
   padding: 0;
 }
 
