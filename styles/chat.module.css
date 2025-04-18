@@ -34,7 +34,7 @@
 
 .headerButtons {
   display: flex;
-  gap: 5px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -396,4 +396,43 @@
     transform: scale(1);
     box-shadow: 0 0 0 0 rgba(255, 75, 75, 0);
   }
+}
+
+.headerDropdown {
+  margin-left: 8px;
+  padding: 0;
+}
+
+.dropdownSelect {
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 2px solid #8a9a5a;
+  background-color: #8a9a5a;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  outline: none;
+  font-size: 0.9rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1.2rem;
+}
+
+.dropdownSelect:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-color: #8a9a5a;
+  color: white;
+}
+
+.dropdownSelect:focus {
+  box-shadow: 0 0 0 2px rgba(138, 154, 90, 0.2);
+}
+
+.dropdownSelect option {
+  background-color: white;
+  color: #333;
+  padding: 0.5rem;
 }

@@ -83,6 +83,8 @@ const Chat = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isBufferUpdating = useRef(false);
 
+  const [answerType, setAnswerType] = useState<'Standard' | 'Advanced'>('Standard');
+
   // Load conversation from localStorage on mount
   useEffect(() => {
     const savedConversation = localStorage.getItem(STORAGE_KEY);
@@ -580,8 +582,18 @@ const Chat = () => {
     <Layout>
       <div className={styles.chatContainer}>
         <div className={styles.chatHeader}>
-          <span>Chat with Plantz Endometriosis Specialist</span>
+          <span>Plantz Endometriosis Specialist</span>
           <div className={styles.headerButtons}>
+            <div className={styles.headerDropdown}>
+              <select
+                value={answerType}
+                onChange={(e) => setAnswerType(e.target.value as 'Standard' | 'Advanced')}
+                className={styles.dropdownSelect}
+              >
+                <option value="Standard">Standard</option>
+                <option value="Advanced">Advanced</option>
+              </select>
+            </div>
             <button 
               onClick={clearConversation} 
               className={styles.headerButton} 
