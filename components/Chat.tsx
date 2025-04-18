@@ -400,6 +400,7 @@ const Chat = () => {
         body: JSON.stringify({
           conversation: [...conversation, userMessage],
           previous_response_id: previousResponseId,
+          answerType: answerType
         }),
       });
 
@@ -428,7 +429,7 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [conversation, previousResponseId, handleStreamingAudio, isListening]);
+  }, [conversation, previousResponseId, handleStreamingAudio, isListening, answerType]);
 
   useEffect(() => {
     if (transcript && !isLoading) {
@@ -616,6 +617,16 @@ const Chat = () => {
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
             </button>
+          </div>
+          <div className={styles.headerDropdown}>
+            <select
+              value={answerType}
+              onChange={(e) => setAnswerType(e.target.value as 'Standard' | 'Advanced')}
+              className={styles.dropdownSelect}
+            >
+              <option value="Standard">Standard</option>
+              <option value="Advanced">Advanced</option>
+            </select>
           </div>
         </div>
         <audio

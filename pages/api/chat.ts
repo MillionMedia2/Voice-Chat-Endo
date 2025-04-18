@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from "next";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import OpenAI from "openai";
-import DEFAULT_INSTRUCTION from "../../config/instruction";
+import instructionStandard from "../../config/instructionStandard";
+import instructionAdvanced from "../../config/instructionAdvanced";
 
 interface ConversationMessage {
   role: "user" | "assistant";
@@ -47,7 +48,7 @@ export default async function handler(
   }
 
   try {
-    const { conversation, previous_response_id } = req.body;
+    const { conversation, previous_response_id, answerType } = req.body;
     
     if (!conversation || !Array.isArray(conversation)) {
       return res.status(400).json({ error: "Invalid conversation format" });
@@ -63,10 +64,13 @@ export default async function handler(
       return res.status(400).json({ error: "No user message found" });
     }
 
+    // Select instruction based on answerType
+    const instruction = answerType === 'Advanced' ? instructionAdvanced : instructionStandard;
+
     // Prepare the payload for the Responses API
     const responsesPayload: ResponsesPayload = {
       model: "gpt-4o-mini",
-      instructions: DEFAULT_INSTRUCTION,
+      instructions: instruction,
       input: lastUserMessage.content,
       temperature: 0.7,
       tools: [
