@@ -83,6 +83,8 @@ const Chat = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isBufferUpdating = useRef(false);
 
+  const [answerType, setAnswerType] = useState<'Standard' | 'Advanced'>('Standard');
+
   // Load conversation from localStorage on mount
   useEffect(() => {
     const savedConversation = localStorage.getItem(STORAGE_KEY);
@@ -398,6 +400,7 @@ const Chat = () => {
         body: JSON.stringify({
           conversation: [...conversation, userMessage],
           previous_response_id: previousResponseId,
+          answerType: answerType
         }),
       });
 
@@ -426,7 +429,7 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [conversation, previousResponseId, handleStreamingAudio, isListening]);
+  }, [conversation, previousResponseId, handleStreamingAudio, isListening, answerType]);
 
   useEffect(() => {
     if (transcript && !isLoading) {
@@ -580,7 +583,7 @@ const Chat = () => {
     <Layout>
       <div className={styles.chatContainer}>
         <div className={styles.chatHeader}>
-          <span>Chat with Plantz Endometriosis Specialist</span>
+          <span>Plantz Endometriosis Specialist</span>
           <div className={styles.headerButtons}>
             <button 
               onClick={clearConversation} 
@@ -604,6 +607,16 @@ const Chat = () => {
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
             </button>
+          </div>
+          <div className={styles.headerDropdown}>
+            <select
+              value={answerType}
+              onChange={(e) => setAnswerType(e.target.value as 'Standard' | 'Advanced')}
+              className={styles.dropdownSelect}
+            >
+              <option value="Standard">Standard</option>
+              <option value="Advanced">Advanced</option>
+            </select>
           </div>
         </div>
         <audio

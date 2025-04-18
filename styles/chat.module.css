@@ -21,21 +21,23 @@
 }
 
 .chatHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 16px;
   background-color: #8a9a5a;
   color: #fff;
   font-size: 1.25rem;
   font-weight: 500;
   text-align: center;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .headerButtons {
   display: flex;
-  gap: 5px;
+  gap: 4px;
   align-items: center;
+  margin-left: auto;
+  margin-right: 0;
 }
 
 .headerButton {
@@ -396,4 +398,47 @@
     transform: scale(1);
     box-shadow: 0 0 0 0 rgba(255, 75, 75, 0);
   }
+}
+
+.headerDropdown {
+  margin-left: 4px;
+  position: relative;
+  display: inline-block;
+}
+
+.dropdownSelect {
+  appearance: none;
+  background-color: #8a9a5a;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 25px 8px 15px;
+  font-size: 14px;
+  font-weight: 300;
+  cursor: pointer;
+  outline: none;
+}
+
+.dropdownSelect:focus {
+  outline: none;
+}
+
+.dropdownSelect option {
+  background-color: #8a9a5a;
+  color: white;
+}
+
+/* Add custom dropdown arrow */
+.headerDropdown::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid white;
+  pointer-events: none;
 }
