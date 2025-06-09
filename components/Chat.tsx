@@ -298,39 +298,42 @@ const Chat = () => {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      console.log("Checking MediaSource state before ending stream:", mediaSourceRef.current?.readyState);
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      console.log("MediaSource state after delay:", mediaSourceRef.current?.readyState);
-      
-      if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
-        console.log("Ending media source stream");
-        mediaSourceRef.current.endOfStream();
-        console.log("MediaSource stream ended successfully");
-      } else {
-        console.warn("MediaSource not open when trying to end stream, state:", mediaSourceRef.current?.readyState);
+      // iOS-specific MediaSource handling
+      const ensureMediaSourceOpen = async () => {
+        if (!mediaSourceRef.current) return false;
         
-        console.log("Waiting longer for MediaSource to open...");
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log("MediaSource state after longer delay:", mediaSourceRef.current?.readyState);
+        if (mediaSourceRef.current.readyState === 'open') {
+          return true;
+        }
         
-        if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
-          console.log("Ending media source stream after longer delay");
+        // Wait for MediaSource to be open
+        return new Promise<boolean>((resolve) => {
+          const checkState = () => {
+            if (mediaSourceRef.current?.readyState === 'open') {
+              resolve(true);
+            } else {
+              setTimeout(checkState, 100);
+            }
+          };
+          checkState();
+        });
+      };
+      
+      const isOpen = await ensureMediaSourceOpen();
+      
+      if (isOpen && mediaSourceRef.current) {
+        try {
+          console.log("Ending media source stream");
           mediaSourceRef.current.endOfStream();
-          console.log("MediaSource stream ended successfully after longer delay");
-        } else {
-          console.warn("MediaSource still not open after longer delay, state:", mediaSourceRef.current?.readyState);
-          
+          console.log("MediaSource stream ended successfully");
+        } catch (err) {
+          console.error("Error ending media source stream:", err);
+          // Fallback to audio duration check
           if (audioRef.current) {
             const duration = audioRef.current.duration;
-            console.log(`Audio duration: ${duration} seconds`);
-            
             if (duration && duration > 0) {
               audioDurationRef.current = duration;
-              
               const endTime = duration * 1000 + 500;
-              console.log(`Setting timer for ${endTime}ms to detect audio end`);
               
               if (audioEndTimerRef.current) {
                 clearTimeout(audioEndTimerRef.current);
@@ -347,6 +350,31 @@ const Chat = () => {
                 }));
               }, endTime);
             }
+          }
+        }
+      } else {
+        console.warn("MediaSource not open when trying to end stream");
+        // Fallback to audio duration check
+        if (audioRef.current) {
+          const duration = audioRef.current.duration;
+          if (duration && duration > 0) {
+            audioDurationRef.current = duration;
+            const endTime = duration * 1000 + 500;
+            
+            if (audioEndTimerRef.current) {
+              clearTimeout(audioEndTimerRef.current);
+            }
+            
+            audioEndTimerRef.current = setTimeout(() => {
+              console.log("Audio end timer fired");
+              setIsAgentSpeaking(false);
+              setIsStreaming(false);
+              setAudioState(prev => ({ 
+                ...prev, 
+                isPlaying: false,
+                isStreaming: false
+              }));
+            }, endTime);
           }
         }
       }
