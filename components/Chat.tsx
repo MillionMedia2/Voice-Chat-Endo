@@ -165,12 +165,14 @@ const Chat = () => {
 
       // Add iOS-specific audio element handling
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      if (isIOS) {
+      if (isIOS && audioRef.current) {
         console.log("iOS device detected, waiting for audio element to be ready");
         await new Promise<void>((resolve) => {
           const canPlayHandler = () => {
             console.log("Audio element ready on iOS");
-            audioRef.current?.removeEventListener('canplay', canPlayHandler);
+            if (audioRef.current) {
+              audioRef.current.removeEventListener('canplay', canPlayHandler);
+            }
             resolve();
           };
           audioRef.current.addEventListener('canplay', canPlayHandler);
