@@ -162,6 +162,20 @@ const Chat = () => {
       
       audioRef.current.src = URL.createObjectURL(newMediaSource);
       console.log("Set audio source to MediaSource URL");
+
+      // Add iOS-specific audio element handling
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        console.log("iOS device detected, waiting for audio element to be ready");
+        await new Promise<void>((resolve) => {
+          const canPlayHandler = () => {
+            console.log("Audio element ready on iOS");
+            audioRef.current?.removeEventListener('canplay', canPlayHandler);
+            resolve();
+          };
+          audioRef.current.addEventListener('canplay', canPlayHandler);
+        });
+      }
       
       const sourceBufferPromise = new Promise<SourceBuffer>((resolve, reject) => {
         const sourceOpenHandler = () => {
