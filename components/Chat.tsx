@@ -167,15 +167,14 @@ const Chat = () => {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       if (isIOS && audioRef.current) {
         console.log("iOS device detected, waiting for audio element to be ready");
+        const audioElement = audioRef.current; // Store reference for TypeScript
         await new Promise<void>((resolve) => {
           const canPlayHandler = () => {
             console.log("Audio element ready on iOS");
-            if (audioRef.current) {
-              audioRef.current.removeEventListener('canplay', canPlayHandler);
-            }
+            audioElement.removeEventListener('canplay', canPlayHandler);
             resolve();
           };
-          audioRef.current.addEventListener('canplay', canPlayHandler);
+          audioElement.addEventListener('canplay', canPlayHandler);
         });
       }
       
