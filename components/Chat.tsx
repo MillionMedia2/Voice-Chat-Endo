@@ -154,8 +154,30 @@ const Chat = () => {
         isBuffering: true
       }));
       
-      console.log("Creating new MediaSource");
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+      if (typeof window === 'undefined' || !("MediaSource" in window)) {
+        console.log("MediaSource not supported, falling back to blob playback");
+        const buffer = await response.arrayBuffer();
+        const blobUrl = URL.createObjectURL(new Blob([buffer], { type: 'audio/mpeg' }));
+
+        if (audioRef.current) {
+          audioRef.current.src = blobUrl;
+          audioRef.current.setAttribute('playsinline', 'true');
+          audioRef.current.setAttribute('webkit-playsinline', 'true');
+          try {
+            await audioRef.current.play();
+          } catch (err) {
+            console.error('Error playing fallback audio:', err);
+          }
+        }
+
+        setIsStreaming(false);
+        setAudioState(prev => ({ ...prev, isStreaming: false, isBuffering: false }));
+        return;
+      }
+
+      console.log("Creating new MediaSource");
       const newMediaSource = new MediaSource();
       console.log("Created new MediaSource, initial state:", newMediaSource.readyState);
       
@@ -665,14 +687,7 @@ const Chat = () => {
               isBuffering: false
             }));
 
-            // Start microphone after a short delay
-            setTimeout(() => {
-              if (browserSupportsSpeechRecognition) {
-                console.log("Starting microphone after audio finished");
-                setIsListening(true);
-                SpeechRecognition.startListening({ continuous: true });
-              }
-            }, 100);
+            // Removed automatic restart of microphone to avoid feedback loops
           }}
           onError={(e) => {
             // Ignore errors that occur during natural playback completion
