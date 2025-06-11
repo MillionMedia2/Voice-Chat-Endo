@@ -137,6 +137,7 @@ const Chat = () => {
 
   const handleStreamingAudio = useCallback(async (response: Response) => {
     if (!response.body) {
+      console.error("Response body is null");
       throw new Error("Response body is null");
     }
 
@@ -152,38 +153,41 @@ const Chat = () => {
         isBuffering: true
       }));
       
+      console.log("Creating new MediaSource");
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       const newMediaSource = new MediaSource();
       console.log("Created new MediaSource, initial state:", newMediaSource.readyState);
-      mediaSourceRef.current = newMediaSource;
       
       if (!audioRef.current) {
+        console.error("Audio element not found");
         throw new Error("Audio element not found");
       }
       
-      audioRef.current.src = URL.createObjectURL(newMediaSource);
-      console.log("Set audio source to MediaSource URL");
+      console.log("Setting audio source to MediaSource URL");
+      const mediaSourceUrl = URL.createObjectURL(newMediaSource);
+      audioRef.current.src = mediaSourceUrl;
+      audioRef.current.setAttribute('playsinline', 'true');
+      audioRef.current.setAttribute('webkit-playsinline', 'true');
+      mediaSourceRef.current = newMediaSource;
 
-      // Add iOS-specific audio element handling
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      if (isIOS && audioRef.current) {
-        console.log("iOS device detected, waiting for audio element to be ready");
-        const audioElement = audioRef.current; // Store reference for TypeScript
-        await new Promise<void>((resolve) => {
-          const canPlayHandler = () => {
-            console.log("Audio element ready on iOS");
-            audioElement.removeEventListener('canplay', canPlayHandler);
-            resolve();
-          };
-          audioElement.addEventListener('canplay', canPlayHandler);
-        });
+      // iOS-specific handling
+      if (isIOS) {
+        console.log("iOS device detected, using webkitAudioContext");
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        const audioContext = new AudioContext();
+        if (audioRef.current) {
+          audioRef.current.setAttribute('playsinline', 'true');
+          audioRef.current.setAttribute('webkit-playsinline', 'true');
+        }
       }
       
       const sourceBufferPromise = new Promise<SourceBuffer>((resolve, reject) => {
         const sourceOpenHandler = () => {
           console.log("MediaSource opened, state:", newMediaSource.readyState);
           try {
+            console.log("Adding source buffer to MediaSource");
             const newSourceBuffer = newMediaSource.addSourceBuffer('audio/mpeg');
-            console.log("Added source buffer to MediaSource");
+            console.log("Source buffer added successfully");
             sourceBufferRef.current = newSourceBuffer;
             resolve(newSourceBuffer);
           } catch (err) {
@@ -192,8 +196,8 @@ const Chat = () => {
           }
         };
         
+        console.log("Adding sourceopen event listener to MediaSource");
         newMediaSource.addEventListener('sourceopen', sourceOpenHandler);
-        console.log("Added sourceopen event listener to MediaSource");
         
         const timeoutId = setTimeout(() => {
           console.warn("MediaSource sourceopen event timed out, current state:", newMediaSource.readyState);
@@ -207,6 +211,7 @@ const Chat = () => {
         }, { once: true });
       });
 
+      console.log("Waiting for source buffer...");
       const sourceBuffer = await sourceBufferPromise;
       console.log("Source buffer obtained successfully");
       
@@ -313,42 +318,39 @@ const Chat = () => {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      // iOS-specific MediaSource handling
-      const ensureMediaSourceOpen = async () => {
-        if (!mediaSourceRef.current) return false;
-        
-        if (mediaSourceRef.current.readyState === 'open') {
-          return true;
-        }
-        
-        // Wait for MediaSource to be open
-        return new Promise<boolean>((resolve) => {
-          const checkState = () => {
-            if (mediaSourceRef.current?.readyState === 'open') {
-              resolve(true);
-            } else {
-              setTimeout(checkState, 100);
-            }
-          };
-          checkState();
-        });
-      };
+      console.log("Checking MediaSource state before ending stream:", mediaSourceRef.current?.readyState);
       
-      const isOpen = await ensureMediaSourceOpen();
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      if (isOpen && mediaSourceRef.current) {
-        try {
-          console.log("Ending media source stream");
+      console.log("MediaSource state after delay:", mediaSourceRef.current?.readyState);
+      
+      if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
+        console.log("Ending media source stream");
+        mediaSourceRef.current.endOfStream();
+        console.log("MediaSource stream ended successfully");
+      } else {
+        console.warn("MediaSource not open when trying to end stream, state:", mediaSourceRef.current?.readyState);
+        
+        console.log("Waiting longer for MediaSource to open...");
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log("MediaSource state after longer delay:", mediaSourceRef.current?.readyState);
+        
+        if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
+          console.log("Ending media source stream after longer delay");
           mediaSourceRef.current.endOfStream();
-          console.log("MediaSource stream ended successfully");
-        } catch (err) {
-          console.error("Error ending media source stream:", err);
-          // Fallback to audio duration check
+          console.log("MediaSource stream ended successfully after longer delay");
+        } else {
+          console.warn("MediaSource still not open after longer delay, state:", mediaSourceRef.current?.readyState);
+          
           if (audioRef.current) {
             const duration = audioRef.current.duration;
+            console.log(`Audio duration: ${duration} seconds`);
+            
             if (duration && duration > 0) {
               audioDurationRef.current = duration;
+              
               const endTime = duration * 1000 + 500;
+              console.log(`Setting timer for ${endTime}ms to detect audio end`);
               
               if (audioEndTimerRef.current) {
                 clearTimeout(audioEndTimerRef.current);
@@ -365,31 +367,6 @@ const Chat = () => {
                 }));
               }, endTime);
             }
-          }
-        }
-      } else {
-        console.warn("MediaSource not open when trying to end stream");
-        // Fallback to audio duration check
-        if (audioRef.current) {
-          const duration = audioRef.current.duration;
-          if (duration && duration > 0) {
-            audioDurationRef.current = duration;
-            const endTime = duration * 1000 + 500;
-            
-            if (audioEndTimerRef.current) {
-              clearTimeout(audioEndTimerRef.current);
-            }
-            
-            audioEndTimerRef.current = setTimeout(() => {
-              console.log("Audio end timer fired");
-              setIsAgentSpeaking(false);
-              setIsStreaming(false);
-              setAudioState(prev => ({ 
-                ...prev, 
-                isPlaying: false,
-                isStreaming: false
-              }));
-            }, endTime);
           }
         }
       }
@@ -518,10 +495,13 @@ const Chat = () => {
 
   const toggleListening = useCallback(() => {
     if (isListening) {
-      console.log("Stopping microphone");
+      // Case 1: Mic is pulsing -> Turn it off (end session)
+      console.log("Stopping microphone - ending session");
       setIsListening(false);
       SpeechRecognition.stopListening();
+      return; // Exit early to prevent any other state changes
     } else if (isAgentSpeaking || isStreaming) {
+      // Case 2: Audio is playing (stop button) -> Stop audio and start mic
       console.log("Stopping audio playback");
       if (audioRef.current) {
         audioRef.current.pause();
@@ -568,14 +548,16 @@ const Chat = () => {
         isStreaming: false
       }));
       
+      // Start mic after stopping audio
       if (browserSupportsSpeechRecognition) {
         console.log("Starting microphone after stopping audio");
         setIsListening(true);
         SpeechRecognition.startListening({ continuous: true });
       }
     } else {
+      // Case 3: Static mic -> Start new session
       if (browserSupportsSpeechRecognition) {
-        console.log("Starting speech recognition");
+        console.log("Starting new session - starting speech recognition");
         setIsListening(true);
         SpeechRecognition.startListening({ continuous: true });
       }
@@ -664,6 +646,8 @@ const Chat = () => {
         </div>
         <audio
           ref={audioRef}
+          playsInline
+          webkit-playsinline="true"
           onEnded={() => {
             console.log("Audio playback ended - Initial state:", {
               isAgentSpeaking,
@@ -672,104 +656,40 @@ const Chat = () => {
               audioState: { ...audioState }
             });
             
+            // Update states first
             setIsAgentSpeaking(false);
             setIsStreaming(false);
             setAudioState(prev => ({ 
               ...prev, 
               isPlaying: false,
-              isStreaming: false
-            }));
-            
-            console.log("Audio playback ended - After state updates:", {
-              isAgentSpeaking: false,
               isStreaming: false,
-              isListening,
-              audioState: { 
-                ...audioState,
-                isPlaying: false,
-                isStreaming: false
-              }
-            });
-            
+              isBuffering: false
+            }));
+
+            // Start microphone after a short delay
             setTimeout(() => {
-              console.log("Timeout fallback - Current state:", {
-                isAgentSpeaking,
-                isStreaming,
-                isListening,
-                audioState: { ...audioState }
-              });
-              
-              if (isAgentSpeaking || isStreaming) {
-                console.log("Forcing state updates in timeout fallback");
-                setIsAgentSpeaking(false);
-                setIsStreaming(false);
-                setAudioState(prev => ({ 
-                  ...prev, 
-                  isPlaying: false,
-                  isStreaming: false
-                }));
-              }
-              
-              if (browserSupportsSpeechRecognition && !isListening) {
-                console.log("Starting microphone in timeout fallback");
-                setIsListening(true);
-                SpeechRecognition.startListening({ continuous: true });
-              }
-            }, 500);
-            
-            if (browserSupportsSpeechRecognition) {
-              console.log("Audio finished, starting microphone");
-              setIsListening(true);
-              SpeechRecognition.startListening({ continuous: true });
-            }
-          }}
-          onTimeUpdate={(e) => {
-            const audioElement = e.currentTarget;
-            if (audioElement.duration && audioElement.currentTime > 0 && 
-                audioElement.duration - audioElement.currentTime < 0.5) {
-              console.log("Audio near end detected via timeupdate:", {
-                currentTime: audioElement.currentTime,
-                duration: audioElement.duration,
-                remaining: audioElement.duration - audioElement.currentTime
-              });
-              
-              audioElement.dataset.nearEnd = "true";
-            }
-          }}
-          onPlay={() => {
-            console.log("Audio started playing");
-            if (audioRef.current) {
-              audioRef.current.dataset.nearEnd = "false";
-            }
-          }}
-          onPause={() => {
-            console.log("Audio paused");
-            if (audioRef.current && audioRef.current.dataset.nearEnd === "true") {
-              console.log("Audio finished playing (detected via pause near end)");
-              
-              setIsAgentSpeaking(false);
-              setIsStreaming(false);
-              setAudioState(prev => ({ 
-                ...prev, 
-                isPlaying: false,
-                isStreaming: false
-              }));
-              
               if (browserSupportsSpeechRecognition) {
-                console.log("Starting microphone after audio finished (detected via pause)");
+                console.log("Starting microphone after audio finished");
                 setIsListening(true);
                 SpeechRecognition.startListening({ continuous: true });
               }
-            }
+            }, 100);
           }}
           onError={(e) => {
+            // Ignore errors that occur during natural playback completion
+            if (!isAgentSpeaking && !isStreaming) {
+              console.log("Ignoring error during playback completion");
+              return;
+            }
             console.error("Audio error:", e);
+            setError("Error playing audio");
             setAudioState(prev => ({ 
               ...prev, 
               isError: true,
               errorMessage: "Error playing audio"
             }));
           }}
+          style={{ display: 'none' }}
         />
         {error && (
           <div className={styles.errorMessage}>
@@ -850,7 +770,7 @@ const Chat = () => {
           </button>
           <button
             onClick={toggleListening}
-            className={`${styles.speechButton} ${(isListening || isAgentSpeaking || isStreaming) ? styles.active : ''}`}
+            className={`${styles.speechButton} ${isListening ? styles.active : ''} ${(isAgentSpeaking || isStreaming) ? styles.active : ''}`}
             disabled={isLoading}
             aria-label={isAgentSpeaking || isStreaming ? "Stop audio" : isListening ? "Stop listening" : "Start listening"}
           >

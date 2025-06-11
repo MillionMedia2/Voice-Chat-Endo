@@ -150,22 +150,42 @@ export default async function handler(
       console.log("Generated reply:", reply);
       
       // Generate audio from the reply
-      const audioResponse = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "tts-1",
-          voice: "alloy",
-          input: reply
-        })
-      });
+      const generateAudio = async (retryCount = 0): Promise<Response> => {
+        try {
+          const audioResponse = await fetch("https://api.openai.com/v1/audio/speech", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+            },
+            body: JSON.stringify({
+              model: "tts-1",
+              voice: "alloy",
+              input: reply
+            })
+          });
 
-      if (!audioResponse.ok) {
-        throw new Error(`Failed to generate audio: ${audioResponse.status}`);
-      }
+          if (!audioResponse.ok) {
+            if (retryCount < 3 && (audioResponse.status === 429 || audioResponse.status >= 500)) {
+              console.log(`Retrying TTS API call (attempt ${retryCount + 1})`);
+              await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+              return generateAudio(retryCount + 1);
+            }
+            throw new Error(`Failed to generate audio: ${audioResponse.status}`);
+          }
+
+          return audioResponse;
+        } catch (error) {
+          if (retryCount < 3) {
+            console.log(`Retrying TTS API call after error (attempt ${retryCount + 1})`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+            return generateAudio(retryCount + 1);
+          }
+          throw error;
+        }
+      };
+
+      const audioResponse = await generateAudio();
 
       // Stream the audio response
       const audioStream = audioResponse.body;
