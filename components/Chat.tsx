@@ -34,7 +34,7 @@ interface SpeechRecognitionHook {
 declare global {
   interface Window {
     webkitAudioContext: typeof AudioContext;
-    MSStream?: any;
+    MSStream?: unknown;
   }
 }
 
@@ -174,7 +174,6 @@ const Chat = () => {
       // iOS-specific handling
       if (isIOS) {
         console.log("iOS device detected, using webkitAudioContext");
-        const AudioContext = window.AudioContext || (window as Window & typeof globalThis).webkitAudioContext;
         if (audioRef.current) {
           audioRef.current.setAttribute('playsinline', 'true');
           audioRef.current.setAttribute('webkit-playsinline', 'true');
