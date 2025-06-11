@@ -687,14 +687,7 @@ const Chat = () => {
               isBuffering: false
             }));
 
-            // Start microphone after a short delay
-            setTimeout(() => {
-              if (browserSupportsSpeechRecognition) {
-                console.log("Starting microphone after audio finished");
-                setIsListening(true);
-                SpeechRecognition.startListening({ continuous: true });
-              }
-            }, 100);
+            // Removed automatic restart of microphone to avoid feedback loops
           }}
           onError={(e) => {
             // Ignore errors that occur during natural playback completion
