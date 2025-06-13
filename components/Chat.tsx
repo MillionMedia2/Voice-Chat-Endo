@@ -47,9 +47,7 @@ const Chat = () => {
     transcript, 
     resetTranscript, 
     browserSupportsSpeechRecognition,
-    isListening: speechIsListening,
-    startListening: speechStartListening,
-    stopListening
+    startListening: speechStartListening
   } = useSpeechRecognition();
   const [conversation, setConversation] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>("");
@@ -81,11 +79,7 @@ const Chat = () => {
   });
 
   const [isStreaming, setIsStreaming] = useState(false);
-  const audioQueue = useRef<Uint8Array[]>([]);
-  const isBufferUpdating = useRef(false);
-
   const [answerType, setAnswerType] = useState<'Standard' | 'Advanced'>('Standard');
-
   const [isProcessingTranscript, setIsProcessingTranscript] = useState(false);
 
   // Load conversation from localStorage on mount
