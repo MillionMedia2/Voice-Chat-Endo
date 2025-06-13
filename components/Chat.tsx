@@ -156,6 +156,12 @@ const Chat = () => {
             await audioRef.current.play();
           } catch (err) {
             console.error('Error playing fallback audio:', err);
+            console.log("Adding click listener to play on next user interaction");
+            document.addEventListener('click', function playOnClick() {
+              console.log("User clicked, attempting to play audio");
+              audioRef.current?.play().catch(err => console.error("Error playing on click:", err));
+              document.removeEventListener('click', playOnClick);
+            }, { once: true });
           }
         }
 
@@ -180,15 +186,6 @@ const Chat = () => {
       audioRef.current.setAttribute('webkit-playsinline', 'true');
       mediaSourceRef.current = newMediaSource;
 
-      // iOS-specific handling
-      if (isIOS) {
-        console.log("iOS device detected, using webkitAudioContext");
-        if (audioRef.current) {
-          audioRef.current.setAttribute('playsinline', 'true');
-          audioRef.current.setAttribute('webkit-playsinline', 'true');
-        }
-      }
-      
       const sourceBufferPromise = new Promise<SourceBuffer>((resolve, reject) => {
         const sourceOpenHandler = () => {
           console.log("MediaSource opened, state:", newMediaSource.readyState);
