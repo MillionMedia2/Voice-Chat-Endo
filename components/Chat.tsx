@@ -46,8 +46,11 @@ const Chat = () => {
   const { 
     transcript, 
     resetTranscript, 
-    browserSupportsSpeechRecognition
-  } = useSpeechRecognition() as SpeechRecognitionHook;
+    browserSupportsSpeechRecognition,
+    isListening: speechIsListening,
+    startListening: speechStartListening,
+    stopListening
+  } = useSpeechRecognition();
   const [conversation, setConversation] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>("");
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
@@ -78,13 +81,12 @@ const Chat = () => {
   });
 
   const [isStreaming, setIsStreaming] = useState(false);
-  // These refs are required for the streaming functionality
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const audioQueue = useRef<Uint8Array[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isBufferUpdating = useRef(false);
 
   const [answerType, setAnswerType] = useState<'Standard' | 'Advanced'>('Standard');
+
+  const [isProcessingTranscript, setIsProcessingTranscript] = useState(false);
 
   // Load conversation from localStorage on mount
   useEffect(() => {
@@ -132,9 +134,9 @@ const Chat = () => {
   const startListening = useCallback(() => {
     if (browserSupportsSpeechRecognition) {
       setIsListening(true);
-      SpeechRecognition.startListening({ continuous: true });
+      speechStartListening({ continuous: true });
     }
-  }, [browserSupportsSpeechRecognition]);
+  }, [browserSupportsSpeechRecognition, speechStartListening]);
 
   const handleStreamingAudio = useCallback(async (response: Response) => {
     if (!response.body) {
@@ -473,18 +475,21 @@ const Chat = () => {
   }, [conversation, previousResponseId, handleStreamingAudio, isListening, answerType]);
 
   useEffect(() => {
-    if (transcript && !isLoading) {
+    if (transcript && !isLoading && !isProcessingTranscript) {
       const timeoutId = setTimeout(() => {
         if (transcript.split(' ').length > 1) {
           console.log("Sending transcript:", transcript);
-          sendMessage(transcript);
-          resetTranscript();
+          setIsProcessingTranscript(true);
+          sendMessage(transcript).finally(() => {
+            setIsProcessingTranscript(false);
+            resetTranscript();
+          });
         }
       }, 1500);
 
       return () => clearTimeout(timeoutId);
     }
-  }, [transcript, isLoading, resetTranscript, sendMessage]);
+  }, [transcript, isLoading, resetTranscript, sendMessage, isProcessingTranscript]);
 
   const clearConversation = useCallback(() => {
     if (window.confirm('Are you sure you want to clear the conversation?')) {
