@@ -143,8 +143,8 @@ const Chat = () => {
       
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
-      if (typeof window === 'undefined' || !("MediaSource" in window)) {
-        console.log("MediaSource not supported, falling back to blob playback");
+      if (typeof window === 'undefined' || !("MediaSource" in window) || isIOS) {
+        console.log("MediaSource not supported or iOS device detected, using blob playback");
         const buffer = await response.arrayBuffer();
         const blobUrl = URL.createObjectURL(new Blob([buffer], { type: 'audio/mpeg' }));
 
