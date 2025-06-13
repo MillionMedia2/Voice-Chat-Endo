@@ -22,15 +22,6 @@ interface AudioState {
   isStreaming: boolean;
 }
 
-interface SpeechRecognitionHook {
-  transcript: string;
-  resetTranscript: () => void;
-  browserSupportsSpeechRecognition: boolean;
-  isListening: boolean;
-  startListening: () => void;
-  stopListening: () => void;
-}
-
 declare global {
   interface Window {
     webkitAudioContext: typeof AudioContext;
